@@ -6,10 +6,132 @@ document.addEventListener('alpine:init', () => {
     aggregation: {totals: {}, tables: []}, tableFilter: '', tablePage: 1,
     expandedTable: '', tableDetail: null, detailError: '', detailLoading: false,
     rawOutput: false,
+    steps: ['Operation', 'Connections', 'Common options', 'Advanced', 'Logging', 'Metrics', 'Review'],
+    stages: ['operation', 'connections', 'common', 'advanced', 'logging', 'metrics', 'review'],
+    step: 0, preview: null, wizardError: '', advancedSearch: '', prunedOptions: [],
+    history: [], historyBusy: false, historyError: '', selectedRecord: null, copyMessage: '',
+    sourceKind: '',
+    previousLogLevel: 'info',
 
     get definition() { return this.commands.find(item => item.id === this.command); },
     get running() { return this.job?.status === 'running'; },
     get totals() { return this.aggregation.totals; },
+    get currentStage() { return this.stages[this.step]; },
+    get reviewStep() { return this.stages.indexOf('review'); },
+    get stepOptions() {
+      const values = this.rawOptions();
+      return (this.definition?.options || []).filter(option =>
+        option.stage === this.stages[this.step] && this.optionApplies(option, values) &&
+        (this.currentStage !== 'advanced' || `${option.name} ${option.label} ${option.description}`.toLowerCase().includes(this.advancedSearch.toLowerCase())));
+    },
+    optionApplies(option, values) {
+      const mode = values.mode || 'data-load';
+      const direct = mode === 'data-load' && values['direct-copy'] === true;
+      const schemes = {postgres: 'postgres', postgresql: 'postgres', mysql: 'mysql', oracle: 'oracle', cockroachdb: 'cockroachdb', cockroach: 'cockroachdb'};
+      const dialect = (this.command === 'fetch' && this.sourceKind) || (values.source ? (schemes[values.source.split(':')[0].toLowerCase()] || 'unknown') : (this.definition?.default_source_dialect || 'unknown'));
+      return (option.rules || []).every(rule => {
+        switch (rule.test) {
+          case 'data-load': return mode === 'data-load';
+          case 'staged': return !direct;
+          case 'bucket': return Boolean(values['bucket-path']);
+          case 'local': return Boolean(values['local-path']);
+          case 'recreate': return values['table-handling'] === 'drop-on-target-and-recreate' && !values['fetch-id'];
+          case 'empty-target': return !['truncate-if-exists', 'drop-on-target-and-recreate'].includes(values['table-handling']) && !values['fetch-id'] && !values['continuation-token'] && mode !== 'export-only';
+          case 'dialect': return dialect === 'unknown' || dialect === rule.value;
+          default: return true;
+        }
+      });
+    },
+    parametersChanged() {
+      this.preview = null; this.wizardError = '';
+      for (let pass = 0; pass < 3; pass++) {
+        const values = this.rawOptions();
+        for (const option of this.definition?.options || []) {
+          if (!this.optionApplies(option, values) && Object.hasOwn(this.values, option.name)) {
+            delete this.values[option.name];
+            if (!this.prunedOptions.includes(option.name)) this.prunedOptions.push(option.name);
+          }
+        }
+      }
+    },
+    fieldValue(option) {
+      const value = this.values[option.name];
+      if (value !== undefined && value !== '') return option.kind === 'bool' ? value === true || value === 'true' : value;
+      const dialect = this.sourceKind || this.definition?.default_source_dialect;
+      return option.default_by_source?.[dialect] ?? option.default ?? (option.kind === 'bool' ? false : '');
+    },
+    setOption(option, value) {
+      if (value === '') delete this.values[option.name];
+      else this.values[option.name] = value;
+      if (option.name === 'logging' && value && value !== 'disabled') this.previousLogLevel = value;
+      this.parametersChanged();
+    },
+    choiceValue(option) {
+      return option.name === 'logging' && this.fieldValue(option) === 'disabled' ? this.previousLogLevel : this.fieldValue(option);
+    },
+    toggleLogging(option, disabled) {
+      if (disabled && this.fieldValue(option) !== 'disabled') this.previousLogLevel = this.fieldValue(option);
+      this.setOption(option, disabled ? 'disabled' : this.previousLogLevel);
+    },
+    setSource(kind) {
+      if (this.sourceKind === kind) return;
+      this.sourceKind = kind;
+      delete this.values.source;
+      this.parametersChanged();
+    },
+    isRequired(option) {
+      if (option.name === 'source' && this.command === 'fetch' && this.sourceKind && option.from_environment) {
+        const configured = this.definition?.default_source_dialect;
+        if (configured !== 'unknown' && configured !== this.sourceKind && !(configured === 'cockroachdb' && this.sourceKind === 'postgres')) return true;
+      }
+      return Boolean(option.required);
+    },
+    fieldPlaceholder(option) {
+      if (option.from_environment && !this.isRequired(option)) return 'Provided by MOLT_' + option.name.toUpperCase().replaceAll('-', '_');
+      return option.default_label || 'Not set';
+    },
+    requestPayload(helpOnly = false) {
+      return {command: this.command, options: this.options(), help_only: helpOnly,
+        ...(this.command === 'fetch' && this.sourceKind ? {source_kind: this.sourceKind} : {})};
+    },
+    openWizard() {
+      if (this.running || this.busy) return;
+      if (this.command === 'fetch' && !this.sourceKind) {
+        const scheme = String(this.values.source || '').split(':')[0].toLowerCase();
+        const dialect = ({postgresql:'postgres', postgres:'postgres', mysql:'mysql', oracle:'oracle'})[scheme] || this.definition?.default_source_dialect;
+        this.sourceKind = ['postgres', 'oracle', 'mysql'].includes(dialect) ? dialect : 'postgres';
+      }
+      this.step = 0; this.preview = null; this.wizardError = ''; this.prunedOptions = []; this.advancedSearch = '';
+      this.$refs.wizard.showModal();
+    },
+    closeWizard() { if (!this.busy) this.$refs.wizard.close(); },
+    async goStep(index) {
+      if (this.busy) return;
+      index = Math.max(0, Math.min(this.steps.length - 1, index));
+      if (index === this.reviewStep) {
+        this.parametersChanged();
+        this.busy = true; this.wizardError = '';
+        try {
+          this.preview = await this.request('/api/command-preview', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.requestPayload()),
+          });
+        } catch (error) { this.wizardError = error.message; return; }
+        finally { this.busy = false; }
+      }
+      this.step = index;
+      if (this.$refs?.wizard) this.$nextTick(() => this.$refs.wizard.querySelector('#wizard-step-' + index)?.focus());
+    },
+    async refreshHistory() {
+      this.historyBusy = true; this.historyError = '';
+      try { this.history = await this.request('/api/history'); }
+      catch (error) { this.historyError = error.message; }
+      finally { this.historyBusy = false; }
+    },
+    async copyCommand(text) {
+      try { await navigator.clipboard.writeText(text); this.copyMessage = 'Copied'; }
+      catch { this.copyMessage = 'Select and copy the command below.'; }
+    },
     get filteredTables() {
       const term = this.tableFilter.toLowerCase();
       return this.aggregation.tables.filter(table => `${table.name} ${table.target || ''}`.toLowerCase().includes(term));
@@ -56,13 +178,20 @@ document.addEventListener('alpine:init', () => {
       catch (error) { this.error = error.message; }
     },
     destroy() { clearTimeout(this.timer); },
-    changeCommand() { this.values = {}; },
+    changeCommand() {
+      this.values = {};
+      this.previousLogLevel = 'info';
+      const configured = this.definition?.default_source_dialect;
+      this.sourceKind = this.command === 'fetch' ? (['postgres', 'oracle', 'mysql'].includes(configured) ? configured : 'postgres') : '';
+      this.preview = null; this.wizardError = ''; this.prunedOptions = [];
+    },
     resetRun(snapshot) {
       clearTimeout(this.timer);
       this.events = []; this.cursor = 0; this.truncated = false;
       this.expandedTable = ''; this.tableDetail = null; this.tableFilter = ''; this.tablePage = 1;
       this.applySnapshot(snapshot);
       if (this.$refs?.configuration) this.$refs.configuration.open = false;
+      if (this.$refs?.history?.open) this.refreshHistory();
     },
     async importFile(file) {
       if (!file || this.running || this.busy) return;
@@ -87,15 +216,20 @@ document.addEventListener('alpine:init', () => {
       } catch (error) { this.error = error.message; }
       finally { this.busy = false; }
     },
-    options() {
+    rawOptions() {
       const result = {};
       for (const option of this.definition?.options || []) {
         const value = this.values[option.name];
         if (value !== undefined && value !== '') {
-          result[option.name] = option.kind === 'bool' ? value === 'true' : String(value);
+          result[option.name] = option.kind === 'bool' ? value === true || value === 'true' : String(value);
         }
       }
       return result;
+    },
+    options() {
+      const values = this.rawOptions();
+      return Object.fromEntries(Object.entries(values).filter(([name]) =>
+        this.optionApplies(this.definition.options.find(option => option.name === name), values)));
     },
     async request(path, options = {}) {
       const response = await fetch(path, options);
@@ -124,11 +258,12 @@ document.addEventListener('alpine:init', () => {
       try {
         const snapshot = await this.request('/api/jobs', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({command: this.command, options: this.options(), help_only: helpOnly}),
+          body: JSON.stringify(this.requestPayload(helpOnly)),
         });
         this.resetRun(snapshot);
+        if (this.$refs?.wizard?.open) this.$refs.wizard.close();
         if (this.running) this.schedulePoll();
-      } catch (error) { this.error = error.message; }
+      } catch (error) { this.error = error.message; this.wizardError = error.message; }
       finally { this.busy = false; }
     },
     schedulePoll() { clearTimeout(this.timer); this.timer = setTimeout(() => this.poll(), 400); },
@@ -140,9 +275,10 @@ document.addEventListener('alpine:init', () => {
         const snapshot = await this.request(`/api/jobs/${jobId}?after=${this.cursor}`);
         if (this.job?.id !== jobId) return;
         this.applySnapshot(snapshot);
+        if (!this.running && this.$refs?.history?.open) await this.refreshHistory();
         const selected = this.aggregation.tables.find(table => table.name === this.expandedTable);
         if (selected && (!this.tableDetail || this.tableDetail.total !== selected.log_lines)) await this.loadTableLogs();
-        this.error = '';
+        this.error = snapshot.history_error || '';
       } catch (error) {
         if (this.job?.id !== jobId) return;
         if (error.status === 404) {

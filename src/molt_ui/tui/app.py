@@ -46,6 +46,7 @@ class MoltApp(App):
         self.table_rows = {}
         self.initial_log_path = log_path
         self.importing = False
+        self.last_error = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -146,12 +147,13 @@ class MoltApp(App):
         try:
             self.job = self.service.start(self.definition()["id"], self.options(), help_only=help_only)
         except (ValueError, CliError) as exc:
-            self.query_one("#status", Static).update(str(exc))
+            self.show_error(str(exc))
             return
         self.attach_job(self.job)
 
     def attach_job(self, job) -> None:
         self.job = job
+        self.last_error = None
         self.cursor = 0
         self.output_cursor = 0
         self.selected_table = None
@@ -173,7 +175,7 @@ class MoltApp(App):
 
         path = self.query_one("#log-path", Input).value.strip()
         if not path:
-            self.query_one("#status", Static).update("Enter a log file path.")
+            self.show_error("Enter a log file path.")
             return
         self.importing = True
         self.set_running(True)
@@ -188,7 +190,7 @@ class MoltApp(App):
             self.attach_job(await asyncio.to_thread(read_log))
             loaded = True
         except (OSError, ValueError, CliError) as exc:
-            self.query_one("#status", Static).update(str(exc))
+            self.show_error(str(exc))
         finally:
             self.importing = False
             self.set_running(self.job is not None and self.job.snapshot()["status"] == "running")
@@ -200,8 +202,12 @@ class MoltApp(App):
             self.query_one(selector).disabled = running
         self.query_one("#stop", Button).disabled = not running or self.importing
 
+    def show_error(self, message: str) -> None:
+        self.last_error = message
+        self.query_one("#status", Static).update(message)
+
     def poll_job(self) -> None:
-        if self.job is None or self.importing:
+        if not self.is_running or self.job is None or self.importing:
             return
         output = self.query_one("#output", RichLog)
         show_output = self.query_one(TabbedContent).active == "stdout" and output.size.width > 0
@@ -221,7 +227,8 @@ class MoltApp(App):
                 output.write(f"[{event.stream}] {event.text}")
             self.output_cursor = snapshot["cursor"]
         self.cursor = snapshot["cursor"]
-        self.query_one("#status", Static).update(snapshot["status"] + (f" · exit {snapshot['returncode']}" if snapshot["returncode"] is not None else ""))
+        status = snapshot["status"] + (f" · exit {snapshot['returncode']}" if snapshot["returncode"] is not None else "")
+        self.query_one("#status", Static).update(self.last_error or snapshot.get('history_error') or status)
         self.set_running(snapshot["status"] == "running")
 
     @on(TabbedContent.TabActivated)

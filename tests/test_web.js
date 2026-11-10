@@ -157,3 +157,132 @@ test('import failures keep the previous result and imports cannot replace a runn
   await app.importFile({ name: 'another.log' });
   assert.equal(calls.length, 1);
 });
+
+test('wizard clears incompatible values before review and preserves the run record', async () => {
+  const plan = {invocation: 'MOLT_SOURCE=postgres://user:secret@source/db molt fetch --direct-copy=true'};
+  const record = {id: 'saved', invocation: plan.invocation};
+  const {app,calls} = createApp([{body:plan},{body:{...snapshot(),record}}]);
+  app.commands = [{id:'fetch', options:[
+    {name:'source',kind:'string',stage:'connections',rules:[]},
+    {name:'target',kind:'string',stage:'connections',rules:[]},
+    {name:'direct-copy',kind:'bool',stage:'operation',rules:[{test:'data-load'}]},
+    {name:'bucket-path',kind:'string',stage:'common',rules:[{test:'staged'}]},
+    {name:'assume-role',kind:'string',stage:'advanced',rules:[{test:'staged'},{test:'bucket'}]},
+    {name:'source-cdb',kind:'string',stage:'connections',rules:[{test:'dialect',value:'oracle'}]},
+  ]}];
+  app.values = {source:'postgres://user:secret@source/db',target:'postgres://target/db','direct-copy':'true','bucket-path':'s3://bucket','assume-role':'role','source-cdb':'oracle://cdb'};
+  app.parametersChanged();
+  assert.equal(app.values['bucket-path'],undefined);
+  assert.equal(app.values['assume-role'],undefined);
+  assert.equal(app.values['source-cdb'],undefined);
+  assert.equal(app.prunedOptions.length,3);
+  await app.goStep(app.reviewStep);
+  assert.equal(calls[0].path,'/api/command-preview');
+  assert.equal(app.step,app.reviewStep);
+  assert.equal(app.preview.invocation,plan.invocation);
+  await app.start();
+  assert.equal(calls[1].path,'/api/jobs');
+  assert.equal(app.job.record.invocation,plan.invocation);
+  app.values.source='postgres://edited/db';
+  assert.equal(app.job.record.invocation,plan.invocation);
+});
+
+test('review validation failure stays in the wizard and does not start a command', async () => {
+  const {app,calls} = createApp([{status:422,body:{detail:'Provide a source connection'}}]);
+  app.commands=catalog;
+  app.step=1;
+  await app.goStep(app.reviewStep);
+  assert.equal(app.step,1);
+  assert.equal(app.preview,null);
+  assert.equal(app.wizardError,'Provide a source connection');
+  assert.equal(app.busy,false);
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].path,'/api/command-preview');
+});
+
+test('history is independent of in-memory output and can restore a saved invocation', async () => {
+  const record={id:'previous',invocation:'molt fetch --direct-copy=true',status:'succeeded'};
+  const {app,calls} = createApp([{body:[record]}]);
+  await app.refreshHistory();
+  assert.equal(calls[0].path,'/api/history');
+  assert.equal(app.history[0].invocation,record.invocation);
+  assert.equal(app.job,null);
+});
+
+test('defaults are shown without emitting untouched flags and checkboxes preserve explicit false', () => {
+  const {app} = createApp([]);
+  const mode={name:'mode',kind:'string',default:'data-load',rules:[]};
+  const rows={name:'rows',kind:'bool',default:true,rules:[]};
+  app.commands=[{id:'fetch', options:[mode,rows]}];
+  assert.equal(app.fieldValue(mode),'data-load');
+  assert.equal(app.fieldValue(rows),true);
+  assert.deepEqual(JSON.parse(JSON.stringify(app.options())),{});
+  app.setOption(rows,false);
+  assert.equal(app.fieldValue(rows),false);
+  assert.equal(app.options().rows,false);
+});
+
+test('source radios prune source-specific options before a connection string is provided', () => {
+  const {app} = createApp([]);
+  const oracle={name:'oracle-application-users',kind:'string',rules:[{test:'dialect',value:'oracle'}]};
+  const slot={name:'pglogical-replication-slot-name',kind:'string',rules:[{test:'dialect',value:'postgres'}]};
+  app.commands=[{id:'fetch', options:[oracle,slot]}];
+  app.sourceKind='postgres';
+  app.values={'oracle-application-users':'app','pglogical-replication-slot-name':'slot'};
+  app.setSource('oracle');
+  assert.equal(app.values['pglogical-replication-slot-name'],undefined);
+  assert.equal(app.values['oracle-application-users'],'app');
+  assert.equal(app.optionApplies(oracle,{}),true);
+  assert.equal(app.optionApplies(slot,{}),false);
+  assert.equal(app.requestPayload().source_kind,'oracle');
+});
+
+test('mandatory fields account for inherited connections and source selection changes', () => {
+  const {app} = createApp([]);
+  const source={name:'source',kind:'string',required:false,from_environment:true,rules:[]};
+  app.commands=[{id:'fetch',default_source_dialect:'postgres',options:[source]}];
+  app.sourceKind='postgres';
+  assert.equal(app.isRequired(source),false);
+  assert.equal(app.fieldPlaceholder(source),'Provided by MOLT_SOURCE');
+  app.sourceKind='oracle';
+  assert.equal(app.isRequired(source),true);
+});
+
+test('logging and metrics are separate from advanced and review remains the final step', async () => {
+  const {app} = createApp([{body:{invocation:'molt fetch --help'}}]);
+  app.commands=[{id:'fetch',options:[
+    {name:'logging',kind:'string',stage:'logging',rules:[]},
+    {name:'opt-out-telemetry',kind:'bool',stage:'metrics',rules:[]},
+    {name:'table-concurrency',kind:'int',stage:'advanced',rules:[]},
+  ]}];
+  assert.equal(app.steps.length,7);
+  await app.goStep(app.stages.indexOf('logging'));
+  assert.equal(app.stepOptions.length,1);
+  assert.equal(app.stepOptions[0].name,'logging');
+  await app.goStep(app.step+1);
+  assert.equal(app.currentStage,'metrics');
+  assert.equal(app.stepOptions[0].name,'opt-out-telemetry');
+  await app.goStep(app.step+1);
+  assert.equal(app.currentStage,'review');
+  assert.equal(app.step,app.steps.length-1);
+});
+
+test('disable logging preserves the selected level and restores it when unchecked', () => {
+  const {app}=createApp([]);
+  const option={name:'logging',kind:'string',default:'info',stage:'logging',rules:[],choices:[
+    {value:'trace',label:'trace'},{value:'info',label:'info'},
+  ]};
+  app.commands=[{id:'fetch',options:[option]}];
+  assert.equal(app.fieldValue(option),'info');
+  app.setOption(option,'trace');
+  app.toggleLogging(option,true);
+  assert.equal(app.fieldValue(option),'disabled');
+  assert.equal(app.options().logging,'disabled');
+  assert.equal(app.choiceValue(option),'trace');
+  app.toggleLogging(option,false);
+  assert.equal(app.fieldValue(option),'trace');
+  assert.equal(app.options().logging,'trace');
+  app.setOption(option,'');
+  assert.equal(Object.hasOwn(app.options(),'logging'),false);
+  assert.equal(app.fieldValue(option),'info');
+});

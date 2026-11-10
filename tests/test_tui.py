@@ -26,9 +26,11 @@ def test_tui_builds_options_and_runs_shared_service():
                 app.poll_job()
                 if app.job.snapshot()['status'] != 'running':
                     break
+            app.poll_job()
             assert 'succeeded' in str(app.query_one('#status', Static).content)
             app.query_one(TabbedContent).active = "stdout"
-            await pilot.pause()
+            await pilot.pause(.25)
+            app.poll_job()
             assert len(app.query_one("#output", RichLog).lines) > 0
             service.start.assert_called_once_with('fetch', {'source': 'source', 'target': 'target', 'direct-copy': True}, help_only=False)
             app.query_one('#command', Select).value = 'verify'
@@ -56,6 +58,7 @@ print(json.dumps({'level': 'warn', 'message': 'global warning'}))
                 app.poll_job()
                 if app.job.snapshot()['status'] != 'running':
                     break
+            app.poll_job()
             assert 'Exported 1,200' in str(app.query_one('#summary', Static).content)
             table = app.query_one('#tables', DataTable)
             assert table.row_count == 2

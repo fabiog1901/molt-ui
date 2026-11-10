@@ -33,6 +33,9 @@ class Job:
         self._stopped = False
         self._returncode: int | None = None
         self._aggregation = LogAggregator()
+        self.record = None
+        self._save_record = None
+        self._history_error = None
         self._thread = Thread(target=self._collect, daemon=True) if process is not None else None
         if self._thread:
             self._thread.start()
@@ -69,6 +72,24 @@ class Job:
         with self._lock:
             self._returncode = returncode
             self._status = "stopped" if self._stopped else ("succeeded" if returncode == 0 else "failed")
+            self._persist_record()
+
+    def _persist_record(self) -> None:
+        if self._save_record:
+            try:
+                saved = self._save_record({"status": self._status, "returncode": self._returncode,
+                                           "aggregation": self._aggregation.snapshot(self._status)})
+                if saved is not None:
+                    self.record = saved
+                self._history_error = None
+            except Exception as exc:
+                self._history_error = f"Could not update run history: {exc}"
+
+    def attach_record(self, record: dict, save) -> None:
+        with self._lock:
+            self.record = record
+            self._save_record = save
+            self._persist_record()
 
     def snapshot(self, after: int = 0) -> dict:
         with self._lock:
@@ -78,6 +99,8 @@ class Job:
                 "truncated": bool(self._events and after < self._events[0].sequence - 1),
                 "events": [event for event in self._events if event.sequence > after],
                 "aggregation": self._aggregation.snapshot(self._status),
+                "record": self.record,
+                "history_error": self._history_error,
             }
 
     def table_logs(self, name: str, limit: int = 50) -> dict:

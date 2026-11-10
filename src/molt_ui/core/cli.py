@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shlex
 
 LOCAL_EXECUTABLE = Path(__file__).resolve().parents[3] / "molt" / "molt"
 
@@ -73,28 +74,57 @@ class CliRunner:
 class CliService:
     """Shared application operations backed by the molt executable."""
 
-    def __init__(self, runner: CliRunner) -> None:
+    def __init__(self, runner: CliRunner, history=None) -> None:
         from .jobs import JobManager
+        from .history import RunHistory
 
         self.runner = runner
         self.jobs = JobManager()
+        self.history = history if history is not None else RunHistory()
 
     def commands(self) -> list[dict]:
-        from .catalog import COMMANDS
+        from .wizard import wizard_catalog
 
-        return COMMANDS
+        return wizard_catalog()
 
-    def start(self, command: str, options: dict[str, str | bool], *, help_only: bool = False):
-        from .commands import build_command
+    def preview(self, command: str, options: dict[str, str | bool], *, help_only: bool = False, source_kind: str | None = None) -> dict:
+        from .commands import CONNECTION_ENV, build_command
+        from .wizard import normalize_options
 
-        arguments, environment = build_command(command, options, help_only=help_only)
-        return self.jobs.start(self.runner.executable, arguments, environment, command)
+        normalized, omitted = ({}, []) if help_only else normalize_options(command, options, source_kind=source_kind)
+        arguments, environment = build_command(command, normalized, help_only=help_only, source_kind=source_kind)
+        if command in {'fetch', 'verify'} and not help_only:
+            for name in CONNECTION_ENV.values():
+                if name not in environment and os.environ.get(name):
+                    environment[name] = os.environ[name]
+        argv = [self.runner.executable, *arguments]
+        assignments = [f'{name}={shlex.quote(value)}' for name, value in environment.items()]
+        invocation = ' '.join([*assignments, shlex.join(argv)])
+        return dict(command=command, argv=argv, environment=environment, options=normalized,
+                    omitted=omitted, invocation=invocation)
+
+    def start(self, command: str, options: dict[str, str | bool], *, help_only: bool = False, source_kind: str | None = None):
+        plan = self.preview(command, options, help_only=help_only, source_kind=source_kind)
+        record = self.history.create(command, origin='help' if help_only else 'command',
+                                     invocation=plan['invocation'], argv=plan['argv'],
+                                     environment=plan['environment'], options=plan['options'])
+        try:
+            job = self.jobs.start(plan['argv'][0], plan['argv'][1:], plan['environment'], command)
+        except CliError as exc:
+            self.history.update(record['id'], {'status': 'launch_failed'}, str(exc))
+            raise
+        job.attach_record(record, lambda state: self.history.update(record['id'], state))
+        return job
 
     def close(self) -> None:
         self.jobs.close()
+        self.history.close()
 
     def import_log(self, source):
-        return self.jobs.import_log(source)
+        job = self.jobs.import_log(source)
+        record = self.history.create('fetch', origin='import')
+        job.attach_record(record, lambda state: self.history.update(record['id'], state))
+        return job
 
     def help(self) -> CommandResult:
         """Return molt's command help without running a migration."""
@@ -102,7 +132,10 @@ class CliService:
 
 
 def create_service() -> CliService:
+    from .history import RunHistory
+
     executable = os.environ.get("MOLT_EXECUTABLE")
     if executable is None:
         executable = str(LOCAL_EXECUTABLE) if LOCAL_EXECUTABLE.is_file() else "molt"
-    return CliService(CliRunner(executable))
+    database = os.environ.get('MOLT_DATABASE', str(Path.cwd() / '.data' / 'molt-ui.sqlite3'))
+    return CliService(CliRunner(executable), RunHistory(database))

@@ -55,21 +55,49 @@ is processed immediately; original timestamps are displayed but not replayed
 with delays. Plain-text/non-JSON lines remain available in the console.
 
 Choose **Fetch data**, **Verify data**, or schema conversion for PostgreSQL,
-MySQL, or Oracle. Common fields appear first; advanced options expose the rest
-of the bundled binary's flags. Hover over a TUI field for its description.
-Blank fields preserve CLI defaults; boolean fields offer default/yes/no so flags
-with a default of true can also be disabled. Command Help works without filling
-the form and does not run the operation.
+MySQL, or Oracle. In the web app, click **Configure command** to open the modal
+wizard: Operation → Connections/Inputs → Common options → Advanced → Logging →
+Metrics → Review.
+Logging contains log level, destination, and console formatting. Levels use plain
+names; a separate Disable logging checkbox sends `--logging=disabled` and restores
+the previous level when unchecked. Metrics contains metrics endpoints, scraping,
+telemetry, and profiling settings. Messages appear
+above the tabs and remain visible while the parameter panel scrolls.
+Long flag help is collapsed; advanced flags are searchable. The Review tab builds
+the exact invocation without executing it. Click Run command to launch it.
+The TUI retains its common/advanced form; hover over a field for its description.
+The web wizard displays concrete defaults such as `data-load`, numeric limits,
+and filter expressions. Boolean options use checkboxes, including checked
+defaults such as verify's `--rows`. Untouched defaults are not emitted as extra
+flags; unchecking a default-true option sends an explicit `false`. Unset options
+and runtime-calculated values have descriptive placeholders. Required fields
+have a red asterisk; inherited connection environment variables satisfy their
+corresponding requirement. The TUI retains its default/yes/no boolean controls.
+Command Help works without filling the form and does not run the operation.
+
+Fetch's second tab includes PostgreSQL, Oracle, and MySQL source radio buttons.
+The selection filters source-specific fields before a URI is entered. Changing
+it clears the previous source connection and inapplicable values. The backend
+validates this context too, including mismatches with a recognized source URI
+scheme; the source selection itself is never emitted as a molt flag.
 
 For a direct-copy fetch:
 
-1. Select Fetch data.
+1. Open Configure command and select Fetch data.
 2. Enter source and target connection strings, or set `MOLT_SOURCE` and
    `MOLT_TARGET` in the environment used to start the app.
-3. Set Direct copy to Yes. For staged import, configure bucket/local storage
+3. Check Direct copy on the Operation tab to bypass staging (unchecked by default).
+   For staged import, configure bucket/local storage
    instead, using the corresponding options.
 4. Set table/schema filters and target table handling as needed.
 5. Click Run command (TUI: Run or Ctrl+R).
+
+The shared applicability rules clear options that no longer belong: staged
+storage flags during direct copy, direct-copy during export/import-only modes,
+Oracle and PostgreSQL flags for incompatible source URI schemes, and DDL capture
+flags unless dropping/recreating target tables. Unknown source schemes retain
+source-specific options. The backend applies the same rules before launching;
+molt still performs its own full compatibility checks.
 
 Run starts the real operation immediately. Stop terminates the process and,
 where supported, its process group; it does not roll back database changes.
@@ -79,7 +107,10 @@ It can allow actions such as clearing exception data; it is never enabled
 implicitly. Operation-specific validation and compatibility checks are also
 performed by molt, with errors appearing in the output pane.
 
-Fetch/verify log output defaults to `--log-file=stdout` for live display. Schema
+Fetch/verify preserve molt's default generated `fetch-{datetime}.log` or
+`verify-{datetime}.log` file. Leave Log file blank to use this default, enter a
+path to choose a file, or enter `stdout` for stdout-only logging. The UI displays
+whatever the process emits on stdout/stderr. Schema
 conversion defaults to `--out=-` and `--url=`: print converted SQL and skip
 database evaluation unless an evaluation URL is provided. File paths refer to
 the machine running the backend/TUI, not the browser.
@@ -98,8 +129,9 @@ Entries are bounded to 16,384 characters; larger lines are displayed as chunks.
 The web UI polls incremental updates, reconnects after temporary network errors,
 and restores the latest run after refresh. Closing a browser tab leaves the
 backend operation running; closing the TUI or stopping the web server stops it.
-Logs are not a durable audit trail. Use molt's log-file option if durable logs
-are required. Independent TUI/web processes manage independent runs.
+UI log buffers are not a durable audit trail; molt's generated or explicitly
+configured log files are separate. Independent TUI/web processes manage
+independent runs.
 
 ## Aggregated progress
 
@@ -128,10 +160,32 @@ watermarks, so repeated summaries do not add rows twice. Unknown counts show an
 em dash; zero is displayed only when reported. Export completion does not imply
 an import count, including direct-copy runs. Run totals sum only reported counts.
 
+## Local run metadata
+
+SQLite stores command records at `.data/molt-ui.sqlite3` relative to the app's
+working directory. Set `MOLT_DATABASE` to choose another path. The default data
+directory is ignored by Git. New database files are created with owner-only
+permissions.
+
+Records include the exact executable/argv, relevant connection environment
+values, normalized options, shell-quoted invocation, start/end timestamps,
+status, exit code, launch error, and final aggregate totals. Connection strings
+and credentials are stored verbatim, as requested. The visible command record
+does not change when you edit a new configuration. **Saved run history** restores
+records after an app restart; Copy command copies the exact saved invocation.
+Imported logs have metadata records with no fabricated command or exit code.
+
+Metadata is committed before a command launches and updated on completion even
+when no UI is polling. History retains the last recorded status after an abrupt
+process crash; it cannot establish whether external database work finished.
+Raw logs and per-table detail buffers remain in memory and are not persisted.
+
 ## Architecture
 
 - `core/catalog.py`: option metadata captured from the bundled binary's help.
 - `core/commands.py`: shared validation and argument/environment construction.
+- `core/wizard.py`: shared applicability rules and wizard option metadata.
+- `core/history.py`: SQLite command metadata and final summaries.
 - `core/jobs.py`: process lifecycle, bounded live output, and stop behavior.
 - `core/aggregation.py`: full-run counters, table progress, and bounded table-log details.
 - `core/cli.py`: service wiring and the original synchronous help adapter.

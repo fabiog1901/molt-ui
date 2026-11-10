@@ -1,5 +1,6 @@
 from pathlib import Path
 import pprint
+import json
 import re
 import subprocess
 
@@ -28,6 +29,19 @@ for command, label in [('fetch','Fetch data'), ('verify','Verify data'), ('conve
             current['description'] += ' ' + line.strip()
         else:
             current = None
+    for option in options:
+        defaults = [value for value in re.findall(r'\(default ([^)]+)\)', option['description']) if value != '<unknown>']
+        value = defaults[0] if defaults else ''
+        if value.startswith('"'):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                value = value.strip('"')
+        if option['kind'] == 'bool':
+            value = value == 'true'
+        elif option['kind'] == 'int' and not value:
+            value = '0'
+        option['default'] = value
     options.sort(key=lambda opt: (opt['advanced'], ['source','target','schema','url','out'].index(opt['name']) if opt['name'] in ['source','target','schema','url','out'] else 10))
     commands.append({'id': command.replace(' ', '-'), 'label': label, 'arguments': command.split(), 'options': options})
 Path('src/molt_ui/core/catalog.py').write_text('"""Command metadata captured from the bundled molt binary help.\n\nRegenerate deliberately when upgrading molt; both UIs consume this catalog.\n"""\n\nCOMMANDS = ' + pprint.pformat(commands, width=100, sort_dicts=False) + '\n')

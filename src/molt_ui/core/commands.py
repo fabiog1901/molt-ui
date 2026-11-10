@@ -3,6 +3,7 @@
 import os
 
 from .catalog import COMMANDS
+from .wizard import normalize_options
 
 
 CONNECTION_ENV = {"source": "MOLT_SOURCE", "target": "MOLT_TARGET", "source-cdb": "MOLT_SOURCE_CDB"}
@@ -15,14 +16,16 @@ def command_definition(command: str) -> dict:
     raise ValueError("Unknown molt command.")
 
 
-def build_command(command: str, options: dict[str, str | bool], *, help_only: bool = False) -> tuple[list[str], dict[str, str]]:
+def build_command(command: str, options: dict[str, str | bool], *, help_only: bool = False, source_kind: str | None = None) -> tuple[list[str], dict[str, str]]:
     definition = command_definition(command)
     if help_only:
         return [*definition["arguments"], "--help"], {}
     known = {option["name"]: option for option in definition["options"]}
     if options.keys() - known.keys():
         raise ValueError("Unknown option for the selected command.")
-    values = dict(options)
+    values, _ = normalize_options(command, options, source_kind=source_kind)
+    if command == 'fetch' and values.get('bucket-path') and values.get('local-path'):
+        raise ValueError('Choose either a staging bucket or a local staging directory.')
     if command.startswith("convert-"):
         # Keep conversion output visible; skip database evaluation unless a URL is supplied.
         values.setdefault("out", "-")
@@ -33,7 +36,6 @@ def build_command(command: str, options: dict[str, str | bool], *, help_only: bo
         for name in ("source", "target"):
             if not values.get(name) and not os.environ.get(CONNECTION_ENV[name]):
                 raise ValueError(f"Provide a {name} connection string or set {CONNECTION_ENV[name]}.")
-        values.setdefault("log-file", "stdout")
     arguments = list(definition["arguments"])
     environment = {}
     for name, value in values.items():

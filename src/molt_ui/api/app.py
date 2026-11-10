@@ -20,6 +20,7 @@ class StartCommand(BaseModel):
     command: str
     options: dict[str, StrictStr | StrictBool] = Field(default_factory=dict)
     help_only: bool = False
+    source_kind: str | None = None
 
 
 def create_app(service: CliService | None = None) -> FastAPI:
@@ -39,11 +40,29 @@ def create_app(service: CliService | None = None) -> FastAPI:
     @app.post("/api/jobs", status_code=201)
     def start_command(body: StartCommand) -> dict:
         try:
-            return service.start(body.command, body.options, help_only=body.help_only).snapshot()
+            return service.start(body.command, body.options, help_only=body.help_only, source_kind=body.source_kind).snapshot()
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except CliError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/command-preview")
+    def preview_command(body: StartCommand) -> dict:
+        try:
+            return service.preview(body.command, body.options, help_only=body.help_only, source_kind=body.source_kind)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/history")
+    def run_history(limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:
+        return service.history.list(limit)
+
+    @app.get("/api/history/{record_id}")
+    def history_record(record_id: str) -> dict:
+        try:
+            return service.history.get(record_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Run record not found.") from exc
 
     @app.get("/api/jobs")
     def latest_job() -> dict | None:

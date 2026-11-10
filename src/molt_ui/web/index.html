@@ -27,59 +27,114 @@
         <p class="hint" role="status" x-show="busy">Loading…</p>
       </section>
       <div class="workspace">
-        <details class="command-config" x-ref="configuration" open>
-          <summary>Command configuration</summary>
-        <section aria-labelledby="command-heading">
-          <h2 id="command-heading">Command</h2>
-          <form @submit.prevent="start(false)">
-            <fieldset :disabled="running || busy || !commands.length">
-              <label for="command">Operation</label>
-              <select id="command" x-model="command" @change="changeCommand">
-                <template x-for="item in commands" :key="item.id">
-                  <option :value="item.id" x-text="item.label"></option>
-                </template>
-              </select>
-              <p class="notice">Run executes against your configured databases. Stop ends the process; it does not undo completed work.</p>
-              <p class="hint" x-show="command.startsWith('convert-')">Conversion prints the schema here and skips database evaluation unless you provide a URL. File paths refer to the machine running the app.</p>
-              <template x-for="option in (definition?.options || []).filter(item => !item.advanced)" :key="command + option.name">
-                <div class="field">
-                  <label :for="'opt-' + option.name" x-text="'--' + option.name"></label>
-                  <template x-if="option.kind === 'bool'">
-                    <select :id="'opt-' + option.name" x-model="values[option.name]">
-                      <option value="">CLI default</option><option value="true">Yes</option><option value="false">No</option>
-                    </select>
-                  </template>
-                  <template x-if="option.kind !== 'bool'">
-                    <input :id="'opt-' + option.name" :type="option.secret ? 'password' : 'text'" :inputmode="option.kind === 'int' ? 'numeric' : 'text'" x-model="values[option.name]" placeholder="CLI default" autocomplete="off" :aria-describedby="'desc-' + option.name">
-                  </template>
-                  <small :id="'desc-' + option.name" x-text="option.description"></small>
+        <section class="command-launcher">
+          <div><h2>Run a command</h2><p class="hint">Configure the operation in a guided wizard, then review the complete invocation.</p></div>
+          <button type="button" @click="openWizard" :disabled="running || busy || !commands.length">Configure command</button>
+        </section>
+        <section class="command-record" x-show="job?.record?.invocation" x-cloak>
+          <div class="console-heading"><h2>Command record</h2><button type="button" class="secondary" @click="copyCommand(job.record.invocation)">Copy command</button></div>
+          <p class="hint" x-text="job?.record ? 'Started ' + new Date(job.record.started_at).toLocaleString() + ' · exact values saved locally' : ''"></p>
+          <pre class="invocation" x-text="job?.record?.invocation"></pre>
+          <p class="hint" role="status" x-text="copyMessage"></p>
+        </section>
+        <details class="run-history" x-ref="history" @toggle="if ($event.target.open) refreshHistory()">
+          <summary>Saved run history</summary>
+          <p class="hint">Command metadata and exact parameter values are stored locally in SQLite. Log history remains bounded in memory.</p>
+          <p class="error" role="alert" x-show="historyError" x-text="historyError"></p>
+          <button type="button" class="secondary" @click="refreshHistory" :disabled="historyBusy" x-text="historyBusy ? 'Loading…' : 'Refresh history'"></button>
+          <div class="history-list">
+            <template x-for="record in history" :key="record.id">
+              <button type="button" class="history-entry secondary" @click="selectedRecord = record; copyMessage = ''" :aria-pressed="selectedRecord?.id === record.id">
+                <span x-text="record.origin === 'import' ? 'Imported log' : record.command"></span>
+                <small x-text="new Date(record.started_at).toLocaleString()"></small>
+                <span class="status-badge" x-text="record.status"></span>
+              </button>
+            </template>
+          </div>
+          <p class="hint" x-show="!history.length && !historyBusy">No saved records yet.</p>
+          <div class="history-detail" x-show="selectedRecord" x-cloak>
+            <p x-text="selectedRecord ? selectedRecord.status + (selectedRecord.returncode !== null ? ' · exit ' + selectedRecord.returncode : '') : ''"></p>
+            <pre class="invocation" x-text="selectedRecord?.invocation || 'Imported log — no command was executed.'"></pre>
+            <p class="error" x-show="selectedRecord?.error" x-text="selectedRecord?.error"></p>
+            <p class="hint" x-text="selectedRecord?.finished_at ? 'Finished ' + new Date(selectedRecord.finished_at).toLocaleString() : 'No final timestamp recorded.'"></p>
+            <button type="button" class="secondary" x-show="selectedRecord?.invocation" @click="copyCommand(selectedRecord.invocation)">Copy saved command</button>
+            <p class="hint" role="status" x-text="copyMessage"></p>
+          </div>
+        </details>
+        <dialog class="wizard" x-ref="wizard" aria-labelledby="wizard-title" @cancel.prevent="closeWizard">
+          <div class="wizard-header"><div><p class="eyebrow">New run</p><h2 id="wizard-title">Configure molt</h2></div><button type="button" class="secondary" @click="closeWizard" :disabled="busy" aria-label="Close wizard">✕</button></div>
+          <div class="wizard-banner" x-show="wizardError || busy || prunedOptions.length" x-cloak :class="wizardError ? 'error-banner' : 'info-banner'" :role="wizardError ? 'alert' : 'status'" aria-live="polite" aria-atomic="true">
+            <p x-text="wizardError || (busy ? 'Preparing command…' : prunedOptions.length + ' incompatible option values cleared after your selections changed.')"></p>
+          </div>
+          <nav class="wizard-tabs" role="tablist" aria-label="Command configuration steps">
+            <template x-for="(label, index) in steps" :key="index">
+              <button type="button" role="tab" :id="'wizard-step-' + index" aria-controls="wizard-panel" :aria-selected="step === index" :tabindex="step === index ? 0 : -1" :disabled="busy" @click="goStep(index)" @keydown.right.prevent="goStep(Math.min(steps.length - 1, index + 1))" @keydown.left.prevent="goStep(Math.max(0, index - 1))" x-text="(index + 1) + '. ' + (index === 1 && command.startsWith('convert-') ? 'Inputs' : label)"></button>
+            </template>
+          </nav>
+          <form @submit.prevent="currentStage === 'review' && preview ? start(false) : goStep(step + 1)">
+            <div class="wizard-body" id="wizard-panel" role="tabpanel" :aria-labelledby="'wizard-step-' + step" tabindex="0">
+              <fieldset :disabled="busy">
+                <div x-show="step === 0">
+                  <label for="command">Operation</label>
+                  <select id="command" x-model="command" @change="changeCommand">
+                    <template x-for="item in commands" :key="item.id"><option :value="item.id" x-text="item.label"></option></template>
+                  </select>
+                  <p class="hint">Choose the operation and transfer method first. Later steps show options that apply to your selections.</p>
                 </div>
-              </template>
-              <details>
-                <summary>Advanced options</summary>
-                <template x-for="option in (definition?.options || []).filter(item => item.advanced)" :key="command + option.name">
-                  <div class="field">
-                    <label :for="'opt-' + option.name" x-text="'--' + option.name"></label>
-                    <template x-if="option.kind === 'bool'">
-                      <select :id="'opt-' + option.name" x-model="values[option.name]">
-                        <option value="">CLI default</option><option value="true">Yes</option><option value="false">No</option>
+                <p class="hint" x-show="step === 1 && command.startsWith('convert-')">Conversion prints SQL and skips database evaluation unless you provide an evaluation URL. File paths refer to the machine running molt.</p>
+                <div x-show="currentStage === 'advanced'"><label for="advanced-search">Find an advanced option</label><input id="advanced-search" type="search" x-model="advancedSearch" placeholder="Filter by flag or description…"></div>
+                <fieldset class="source-picker" x-show="command === 'fetch' && step === 1">
+                  <legend>Source database <span class="required-mark" aria-hidden="true">*</span><span class="sr-only"> (required)</span></legend>
+                  <div class="source-choices">
+                    <template x-for="source in [{value:'postgres',label:'PostgreSQL'},{value:'oracle',label:'Oracle'},{value:'mysql',label:'MySQL'}]" :key="source.value">
+                      <label><input type="radio" name="source-kind" :value="source.value" :checked="sourceKind === source.value" :required="command === 'fetch' && step === 1" @change="setSource($event.target.value)"><span x-text="source.label"></span></label>
+                    </template>
+                  </div>
+                  <small>Source-specific options follow this selection. Changing it clears the source connection and incompatible settings.</small>
+                </fieldset>
+                <template x-for="option in stepOptions" :key="command + option.name">
+                  <div class="wizard-field" :class="option.kind === 'bool' ? 'boolean-field' : ''">
+                    <div class="field-heading">
+                      <template x-if="option.kind === 'bool'">
+                        <input type="checkbox" :id="'opt-' + option.name" :checked="fieldValue(option)" @change="setOption(option, $event.target.checked)" :aria-describedby="'brief-' + option.name">
+                      </template>
+                      <label :for="'opt-' + option.name"><span><span x-text="option.label"></span> <span class="required-mark" x-show="isRequired(option)" aria-hidden="true">*</span><span class="sr-only" x-show="isRequired(option)"> (required)</span></span> <span class="parameter-names"><code x-text="'--' + option.name"></code><code x-show="option.environment_variable" title="Environment variable alternative" x-text="option.environment_variable ? 'or $' + option.environment_variable : ''"></code></span></label>
+                    </div>
+                    <template x-if="option.name === 'logging'">
+                      <label class="check-label"><input type="checkbox" id="disable-logging" :checked="fieldValue(option) === 'disabled'" @change="toggleLogging(option, $event.target.checked)"> Disable logging</label>
+                    </template>
+                    <template x-if="option.kind !== 'bool' && option.choices.length">
+                      <select :id="'opt-' + option.name" :value="choiceValue(option)" x-init="$nextTick(() => $el.value = choiceValue(option))" @change="setOption(option, $event.target.value)" :disabled="option.name === 'logging' && fieldValue(option) === 'disabled'" :required="isRequired(option)" :aria-describedby="'brief-' + option.name">
+                        <template x-for="choice in option.choices" :key="choice.value"><option :value="choice.value" x-text="option.name === 'logging' ? choice.value : choice.value + ' — ' + choice.label"></option></template>
                       </select>
                     </template>
-                    <template x-if="option.kind !== 'bool'">
-                      <input :id="'opt-' + option.name" :type="option.secret ? 'password' : 'text'" :inputmode="option.kind === 'int' ? 'numeric' : 'text'" x-model="values[option.name]" placeholder="CLI default" autocomplete="off" :aria-describedby="'desc-' + option.name">
+                    <template x-if="option.kind !== 'bool' && !option.choices.length">
+                      <input :id="'opt-' + option.name" :type="option.secret ? 'password' : 'text'" :inputmode="option.kind === 'int' ? 'numeric' : 'text'" :value="fieldValue(option)" @input="setOption(option, $event.target.value)" :placeholder="fieldPlaceholder(option)" :required="isRequired(option)" autocomplete="off" :aria-describedby="'brief-' + option.name">
                     </template>
-                    <small :id="'desc-' + option.name" x-text="option.description"></small>
+                    <small :id="'brief-' + option.name" x-text="option.brief"></small>
+                    <details class="flag-help"><summary>More about this option</summary><p x-text="option.description"></p></details>
                   </div>
                 </template>
-              </details>
-              <div class="actions">
-                <button type="submit">Run command</button>
-                <button type="button" class="secondary" @click="start(true)">Command help</button>
+                <p class="hint" x-show="currentStage === 'advanced' && !stepOptions.length">No applicable advanced options match your search.</p>
+                <p class="hint" x-show="['logging', 'metrics'].includes(currentStage) && !stepOptions.length">This command has no options in this category.</p>
+                <div x-show="currentStage === 'review'">
+                  <h3>Review the command</h3>
+                  <pre class="invocation" x-text="preview?.invocation || ''"></pre>
+                  <p class="notice">Run starts the real operation immediately. Stop ends the process and does not undo completed work.</p>
+                  <p class="hint">This exact invocation, including connection values, will be saved locally with its timestamps and final status.</p>
+                </div>
+              </fieldset>
+            </div>
+            <footer class="wizard-footer">
+              <div class="wizard-buttons">
+                <button type="button" class="secondary" @click="start(true)" :disabled="busy">Command help</button>
+                <span class="wizard-spacer"></span>
+                <button type="button" class="secondary" @click="goStep(step - 1)" :disabled="busy || step === 0">Back</button>
+                <button type="submit" :disabled="busy || (currentStage === 'review' && !preview)" x-text="busy ? 'Working…' : (currentStage === 'review' ? 'Run command' : 'Next')"></button>
               </div>
-            </fieldset>
+            </footer>
           </form>
-        </section>
-        </details>
+        </dialog>
         <section class="console" aria-labelledby="output-heading">
           <div class="console-heading">
             <h2 id="output-heading">Live output</h2>
