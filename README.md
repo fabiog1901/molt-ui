@@ -51,4 +51,6 @@ You can also open a saved log directly:
 poetry run molt-tui --log /path/to/fetch.jsonl
 ```
 
+---
+
 ![Molt UI mascot carrying a database with a migration arrow](resources/media/splash.png)
