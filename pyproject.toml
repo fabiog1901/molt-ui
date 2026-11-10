@@ -1,0 +1,33 @@
+[project]
+name = "molt-ui"
+version = "0.1.0"
+description = "A shared Python core with Textual and Alpine.js interfaces"
+readme = "README.md"
+authors = [
+    {name = "Fabio Ghirardello",email = "ghirardello.fabio@gmail.com"}
+]
+requires-python = ">=3.14,<4"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
+    "textual>=6.12,<7",
+]
+
+[project.scripts]
+molt-tui = "molt_ui.tui.app:main"
+molt-web = "molt_ui.api.app:main"
+
+[tool.poetry]
+packages = [{include = "molt_ui", from = "src"}]
+include = [{path = "src/molt_ui/web/**/*", format = ["sdist", "wheel"]}]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8,<10"
+httpx = ">=0.28,<1"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

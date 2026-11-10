@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Molt UI</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script defer src="/static/app.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  </head>
+  <body>
+    <main x-data="cliApp">
+      <header>
+        <p class="eyebrow">Molt UI</p>
+        <h1>Move your data.</h1>
+        <p>Configure a command and follow its progress.</p>
+      </header>
+      <p class="error" role="alert" x-show="error" x-text="error" x-cloak></p>
+      <section class="log-import" aria-labelledby="import-heading">
+        <h2 id="import-heading">Preview saved logs</h2>
+        <p class="hint">Import a JSONL or text log (up to 256 MiB) to inspect tables and totals. No molt command runs. The sample is a condensed version of the supplied fetch log.</p>
+        <div class="import-actions">
+          <label for="log-file">Log file</label>
+          <input id="log-file" type="file" accept=".jsonl,.ndjson,.json,.log,.txt,text/plain" :disabled="running || busy" @change="importFile($event.target.files[0]); $event.target.value = ''">
+          <button type="button" class="secondary" :disabled="running || busy" @click="loadSample">Load sample log</button>
+        </div>
+        <p class="hint" role="status" x-show="busy">Loading…</p>
+      </section>
+      <div class="workspace">
+        <details class="command-config" x-ref="configuration" open>
+          <summary>Command configuration</summary>
+        <section aria-labelledby="command-heading">
+          <h2 id="command-heading">Command</h2>
+          <form @submit.prevent="start(false)">
+            <fieldset :disabled="running || busy || !commands.length">
+              <label for="command">Operation</label>
+              <select id="command" x-model="command" @change="changeCommand">
+                <template x-for="item in commands" :key="item.id">
+                  <option :value="item.id" x-text="item.label"></option>
+                </template>
+              </select>
+              <p class="notice">Run executes against your configured databases. Stop ends the process; it does not undo completed work.</p>
+              <p class="hint" x-show="command.startsWith('convert-')">Conversion prints the schema here and skips database evaluation unless you provide a URL. File paths refer to the machine running the app.</p>
+              <template x-for="option in (definition?.options || []).filter(item => !item.advanced)" :key="command + option.name">
+                <div class="field">
+                  <label :for="'opt-' + option.name" x-text="'--' + option.name"></label>
+                  <template x-if="option.kind === 'bool'">
+                    <select :id="'opt-' + option.name" x-model="values[option.name]">
+                      <option value="">CLI default</option><option value="true">Yes</option><option value="false">No</option>
+                    </select>
+                  </template>
+                  <template x-if="option.kind !== 'bool'">
+                    <input :id="'opt-' + option.name" :type="option.secret ? 'password' : 'text'" :inputmode="option.kind === 'int' ? 'numeric' : 'text'" x-model="values[option.name]" placeholder="CLI default" autocomplete="off" :aria-describedby="'desc-' + option.name">
+                  </template>
+                  <small :id="'desc-' + option.name" x-text="option.description"></small>
+                </div>
+              </template>
+              <details>
+                <summary>Advanced options</summary>
+                <template x-for="option in (definition?.options || []).filter(item => item.advanced)" :key="command + option.name">
+                  <div class="field">
+                    <label :for="'opt-' + option.name" x-text="'--' + option.name"></label>
+                    <template x-if="option.kind === 'bool'">
+                      <select :id="'opt-' + option.name" x-model="values[option.name]">
+                        <option value="">CLI default</option><option value="true">Yes</option><option value="false">No</option>
+                      </select>
+                    </template>
+                    <template x-if="option.kind !== 'bool'">
+                      <input :id="'opt-' + option.name" :type="option.secret ? 'password' : 'text'" :inputmode="option.kind === 'int' ? 'numeric' : 'text'" x-model="values[option.name]" placeholder="CLI default" autocomplete="off" :aria-describedby="'desc-' + option.name">
+                    </template>
+                    <small :id="'desc-' + option.name" x-text="option.description"></small>
+                  </div>
+                </template>
+              </details>
+              <div class="actions">
+                <button type="submit">Run command</button>
+                <button type="button" class="secondary" @click="start(true)">Command help</button>
+              </div>
+            </fieldset>
+          </form>
+        </section>
+        </details>
+        <section class="console" aria-labelledby="output-heading">
+          <div class="console-heading">
+            <h2 id="output-heading">Live output</h2>
+            <button type="button" class="stop" @click="stop" :disabled="!running">Stop</button>
+          </div>
+          <p role="status" x-text="job ? job.status + (job.returncode !== null ? ' · exit ' + job.returncode : '') : 'Ready'"></p>
+          <p class="hint" x-show="job?.status === 'imported'" x-cloak>Log preview — no command was executed. A saved log does not establish the migration’s exit status.</p>
+          <div class="metrics" aria-label="Run totals">
+            <div class="metric"><span>Tables</span><strong x-text="number(totals.tables ?? 0)"></strong></div>
+            <div class="metric"><span>Errors</span><strong :class="totals.errors ? 'error' : 'healthy'" x-text="number(totals.errors ?? 0)"></strong></div>
+            <div class="metric"><span>Warnings</span><strong :class="totals.warnings ? 'warn' : ''" x-text="number(totals.warnings ?? 0)"></strong></div>
+            <div class="metric"><span>Skipped</span><strong x-text="number(totals.skipped ?? 0)"></strong></div>
+            <div class="metric"><span>Exported total</span><strong x-text="number(totals.exported ?? 0)"></strong></div>
+            <div class="metric"><span>Imported total</span><strong x-text="number(totals.imported ?? 0)"></strong></div>
+          </div>
+          <div class="table-toolbar">
+            <label class="sr-only" for="table-filter">Filter table name</label>
+            <input id="table-filter" type="search" placeholder="Filter table name…" x-model.debounce.150ms="tableFilter" @input="tablePage = 1">
+            <span class="hint" x-text="filteredTables.length + ' of ' + (totals.tables ?? 0) + ' tables'"></span>
+          </div>
+          <div class="table-scroll" tabindex="0" aria-label="Per-table progress">
+            <table class="progress-table">
+              <thead><tr><th aria-label="Expand logs"></th><th scope="col">Table</th><th scope="col">Exported</th><th scope="col">Imported</th><th scope="col">Errors</th><th scope="col">Warnings</th><th scope="col">Log lines</th><th scope="col">Status</th></tr></thead>
+              <template x-for="(table, index) in visibleTables" :key="table.name">
+                <tbody>
+                  <tr>
+                    <td><button type="button" class="expand-table" @click="toggleTable(table.name)" :aria-expanded="expandedTable === table.name" :aria-label="'Logs for ' + table.name" :aria-controls="'table-details-' + index" x-text="expandedTable === table.name ? '▾' : '▸'"></button></td>
+                    <th scope="row"><span x-text="table.name"></span><small x-show="table.target && table.target !== table.name" x-text="'→ ' + table.target"></small></th>
+                    <td x-text="number(table.exported)"></td><td x-text="number(table.imported)"></td>
+                    <td :class="table.errors ? 'error' : ''" x-text="number(table.errors)"></td>
+                    <td :class="table.warnings ? 'warn' : ''" x-text="number(table.warnings)"></td>
+                    <td x-text="number(table.log_lines)"></td>
+                    <td><span class="status-badge" :class="table.status" :title="'Phase: ' + table.phase" x-text="table.status"></span></td>
+                  </tr>
+                  <tr x-show="expandedTable === table.name" :id="'table-details-' + index" x-cloak>
+                    <td colspan="8" class="table-details">
+                      <template x-if="expandedTable === table.name">
+                        <div>
+                          <p class="hint" x-text="tableDetail ? 'Showing ' + tableDetail.events.length + ' recent log entries of ' + number(tableDetail.total) + (tableDetail.truncated ? ' · earlier entries discarded' : '') : 'Loading table logs…'"></p>
+                          <p class="error" role="alert" x-show="detailError" x-text="detailError"></p>
+                          <button type="button" class="secondary" x-show="detailError" @click="loadTableLogs">Retry loading logs</button>
+                          <template x-for="event in (tableDetail?.events || [])" :key="event.sequence">
+                            <pre :class="event.data?.level || event.stream" x-text="formatEvent(event)"></pre>
+                          </template>
+                        </div>
+                      </template>
+                    </td>
+                  </tr>
+                </tbody>
+              </template>
+            </table>
+            <p class="hint empty-tables" x-show="!visibleTables.length" x-text="tableFilter ? 'No matching tables.' : 'Tables will appear when molt identifies them.'"></p>
+          </div>
+          <div class="pagination" x-show="tablePages > 1" x-cloak>
+            <button type="button" class="secondary" :disabled="tablePage <= 1" @click="tablePage--">Previous</button>
+            <span x-text="'Page ' + Math.min(tablePage, tablePages) + ' of ' + tablePages"></span>
+            <button type="button" class="secondary" :disabled="tablePage >= tablePages" @click="tablePage++">Next</button>
+          </div>
+          <p class="hint">Totals cover all received logs, including discarded console history. Row counts are only shown when reported by molt.</p>
+          <p class="hint" x-text="number(totals.unassigned ?? 0) + ' log entries without an identifiable table · ' + number(totals.unassigned_warnings ?? 0) + ' global warnings · ' + number(totals.unassigned_errors ?? 0) + ' global errors'"></p>
+          <div class="console-heading raw-heading"><h3>Scrolling output</h3><label class="check-label"><input type="checkbox" x-model="rawOutput"> Raw JSON</label></div>
+          <p class="hint" x-show="truncated" x-cloak>Earlier output was discarded. Showing the latest log entries.</p>
+          <div class="log-output" x-ref="output" tabindex="0" aria-label="Command output">
+            <p class="hint" x-show="!events.length">Command output will appear here.</p>
+            <template x-for="event in events" :key="event.sequence">
+              <pre :class="event.data?.level || event.stream" x-text="rawOutput ? event.text : formatEvent(event)"></pre>
+            </template>
+          </div>
+        </section>
+      </div>
+      <noscript>Enable JavaScript to use this app.</noscript>
+    </main>
+  </body>
+</html>

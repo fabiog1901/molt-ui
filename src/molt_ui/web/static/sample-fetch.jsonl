@@ -1,0 +1,78 @@
+{"level": "info", "time": "2026-09-22T16:14:18Z", "message": "default compression to none"}
+{"level": "debug", "type": "data", "flush_size": 1048576, "flush_num_rows": 0, "store": "*datablobstorage.copyCRDBDirect", "time": "2026-09-22T16:14:19Z", "message": "initial config"}
+{"level": "info", "time": "2026-09-22T16:14:19Z", "message": "checking database details"}
+{"level": "warn", "table": "public._molt_fetch_exceptions", "time": "2026-09-22T16:14:19Z", "message": "ignoring table as it is missing a definition on the source"}
+{"level": "warn", "table": "public._molt_fetch_status", "time": "2026-09-22T16:14:19Z", "message": "ignoring table as it is missing a definition on the source"}
+{"level": "info", "source_table": "public.actor", "target_table": "public.actor", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.film", "target_table": "public.film", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.new_payment", "target_table": "public.new_payment", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.payment", "target_table": "public.payment", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.film_actor", "target_table": "public.film_actor", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.rental", "target_table": "public.rental", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.staff", "target_table": "public.staff", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.category", "target_table": "public.category", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.city", "target_table": "public.city", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.country", "target_table": "public.country", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.customer", "target_table": "public.customer", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.language", "target_table": "public.language", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.store", "target_table": "public.store", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.address", "target_table": "public.address", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.film_category", "target_table": "public.film_category", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.film_text", "target_table": "public.film_text", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "source_table": "public.inventory", "target_table": "public.inventory", "time": "2026-09-22T16:14:19Z", "message": "found matching table"}
+{"level": "info", "time": "2026-09-22T16:14:19Z", "message": "verifying common tables"}
+{"level": "warn", "time": "2026-09-22T16:14:19Z", "message": "Column 'language_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:19Z", "message": "Column 'original_language_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:19Z", "message": "Column 'rental_duration' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:20Z", "message": "Column 'staff_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:20Z", "message": "Column 'staff_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:20Z", "message": "Column 'staff_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:20Z", "message": "Column 'store_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:20Z", "message": "Column 'active' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:20Z", "message": "Column 'category_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:21Z", "message": "Column 'store_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:21Z", "message": "Column 'active' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:21Z", "message": "Column 'language_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:21Z", "message": "Column 'store_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:21Z", "message": "Column 'manager_staff_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:21Z", "message": "Column 'category_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "warn", "time": "2026-09-22T16:14:22Z", "message": "Column 'store_id' uses TINYINT, which is not supported in CockroachDB. Comparing as INT2, the closest equivalent."}
+{"level": "info", "time": "2026-09-22T16:14:22Z", "message": "establishing snapshot"}
+{"level": "info", "type": "summary", "num_tables": 17, "cdc_cursor": "", "time": "2026-09-22T16:14:22Z", "message": "starting fetch"}
+{"level": "info", "table": "public.actor", "time": "2026-09-22T16:16:06Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.film", "time": "2026-09-22T16:16:06Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.new_payment", "time": "2026-09-22T16:16:06Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.payment", "time": "2026-09-22T16:16:06Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.film_actor", "time": "2026-09-22T16:16:06Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.actor", "type": "summary", "num_rows": 200, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:06Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.rental", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.staff", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.category", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.city", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.country", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.customer", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.language", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.store", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.address", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.film_category", "time": "2026-09-22T16:16:07Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.film", "type": "summary", "num_rows": 1000, "export_duration_ms": 1000, "export_duration": "000h 00m 01s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.payment", "type": "summary", "num_rows": 16044, "export_duration_ms": 1000, "export_duration": "000h 00m 01s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.film_actor", "type": "summary", "num_rows": 5462, "export_duration_ms": 1000, "export_duration": "000h 00m 01s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.new_payment", "type": "summary", "num_rows": 16044, "export_duration_ms": 1000, "export_duration": "000h 00m 01s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.staff", "type": "summary", "num_rows": 2, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.rental", "type": "summary", "num_rows": 16044, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.category", "type": "summary", "num_rows": 16, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.city", "type": "summary", "num_rows": 600, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.country", "type": "summary", "num_rows": 109, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "warn", "time": "2026-09-22T16:16:07Z", "message": "sharding not supported for table public.language - single primary key with single row"}
+{"level": "info", "table": "public.language", "type": "summary", "num_rows": 1, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.customer", "type": "summary", "num_rows": 599, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.store", "type": "summary", "num_rows": 2, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:07Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.film_text", "time": "2026-09-22T16:16:08Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.inventory", "time": "2026-09-22T16:16:08Z", "message": "data extraction phase starting"}
+{"level": "info", "table": "public.address", "type": "summary", "num_rows": 603, "export_duration_ms": 1000, "export_duration": "000h 00m 01s", "time": "2026-09-22T16:16:08Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.film_category", "type": "summary", "num_rows": 1000, "export_duration_ms": 1000, "export_duration": "000h 00m 01s", "time": "2026-09-22T16:16:08Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.film_text", "type": "summary", "num_rows": 1000, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:08Z", "message": "data extraction from source complete"}
+{"level": "info", "table": "public.inventory", "type": "summary", "num_rows": 4581, "export_duration_ms": 0, "export_duration": "000h 00m 00s", "time": "2026-09-22T16:16:08Z", "message": "data extraction from source complete"}
+{"level": "info", "type": "summary", "num_tables": 17, "tables": ["public.actor", "public.address", "public.category", "public.city", "public.country", "public.customer", "public.film", "public.film_actor", "public.film_category", "public.film_text", "public.inventory", "public.language", "public.new_payment", "public.payment", "public.rental", "public.staff", "public.store"], "cdc_cursor": "", "net_duration_ms": 109417.957107, "net_duration": "000h 01m 49s", "time": "2026-09-22T16:16:08Z", "message": "fetch complete"}
+{"level": "info", "time": "2026-09-22T16:16:08Z", "message": "closed export source"}
