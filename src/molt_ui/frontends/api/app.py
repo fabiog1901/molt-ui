@@ -1,26 +1,18 @@
 import asyncio
 import io
 from contextlib import asynccontextmanager
-from pathlib import Path
+from importlib.resources import files
 from tempfile import SpooledTemporaryFile
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 from molt_ui.core import CliError, CliService, CommandResult, create_service
+from molt_ui.frontends.models import CommandDefinition, StartCommand
 
-WEB_DIRECTORY = Path(__file__).resolve().parents[1] / "web"
-
-
-class StartCommand(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    command: str
-    options: dict[str, StrictStr | StrictBool] = Field(default_factory=dict)
-    help_only: bool = False
-    source_kind: str | None = None
+WEBAPP_DIRECTORY = files("molt_ui.webapp")
 
 
 def create_app(service: CliService | None = None) -> FastAPI:
@@ -33,9 +25,9 @@ def create_app(service: CliService | None = None) -> FastAPI:
 
     app = FastAPI(title="Molt UI", lifespan=lifespan)
 
-    @app.get("/api/commands")
-    def commands() -> list[dict]:
-        return service.commands()
+    @app.get("/api/commands", response_model_exclude_unset=True)
+    def commands() -> list[CommandDefinition]:
+        return [CommandDefinition.model_validate(item) for item in service.commands()]
 
     @app.post("/api/jobs", status_code=201)
     def start_command(body: StartCommand) -> dict:
@@ -121,14 +113,14 @@ def create_app(service: CliService | None = None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(WEB_DIRECTORY / "index.html")
+        return FileResponse(WEBAPP_DIRECTORY / "index.html")
 
-    app.mount("/static", StaticFiles(directory=WEB_DIRECTORY / "static"), name="static")
+    app.mount("/static", StaticFiles(directory=WEBAPP_DIRECTORY / "static"), name="static")
     return app
 
 
 def main() -> None:
-    uvicorn.run("molt_ui.api.app:create_app", factory=True, host="127.0.0.1", port=8000)
+    uvicorn.run("molt_ui.frontends.api.app:create_app", factory=True, host="127.0.0.1", port=8000)
 
 
 if __name__ == "__main__":

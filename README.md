@@ -19,7 +19,7 @@ Open http://127.0.0.1:8000 for the SPA; API documentation is at `/docs`.
 For automatic web reload:
 
 ```sh
-poetry run uvicorn molt_ui.api.app:create_app --factory --reload
+poetry run uvicorn molt_ui.frontends.api.app:create_app --factory --reload
 ```
 
 Executable resolution: `MOLT_EXECUTABLE`, then `molt/molt` in this checkout, then
@@ -43,7 +43,7 @@ as a stream with bounded in-memory history.
 In the TUI, enter the local file path and click **Import log**, or launch with:
 
 ```sh
-poetry run molt-tui --log src/molt_ui/web/static/sample-fetch.jsonl
+poetry run molt-tui --log src/molt_ui/webapp/static/sample-fetch.jsonl
 # For your own file:
 poetry run molt-tui --log /path/to/fetch.jsonl
 ```
@@ -182,6 +182,7 @@ Raw logs and per-table detail buffers remain in memory and are not persisted.
 
 ## Architecture
 
+- `core/models.py`: shared Pydantic output and aggregation models.
 - `core/catalog.py`: option metadata captured from the bundled binary's help.
 - `core/commands.py`: shared validation and argument/environment construction.
 - `core/wizard.py`: shared applicability rules and wizard option metadata.
@@ -189,9 +190,16 @@ Raw logs and per-table detail buffers remain in memory and are not persisted.
 - `core/jobs.py`: process lifecycle, bounded live output, and stop behavior.
 - `core/aggregation.py`: full-run counters, table progress, and bounded table-log details.
 - `core/cli.py`: service wiring and the original synchronous help adapter.
-- `tui/`: Textual controls and log presentation.
-- `api/`: FastAPI command catalog, start/status/stop endpoints, and static assets.
-- `web/`: build-free HTML, CSS, and Alpine.js.
+- `frontends/models.py`: shared Pydantic request and command-field models.
+- `frontends/tui/`: Textual controls and log presentation.
+- `frontends/api/`: FastAPI command catalog, start/status/stop endpoints, and static assets.
+- `webapp/`: packaged build-free HTML, CSS, and Alpine.js.
+
+Both frontend adapters consume the same validated command-field models. Shared
+process output and aggregation types live in `core/models.py`; the core does not
+import frontend modules. Models use Pydantic rather than dataclasses. Static
+assets are resolved through package resources rather than the API directory's
+depth, so frontend directory changes and installed wheels use the same paths.
 
 Arguments are passed directly without a shell. Source, target, and source-CDB
 connection strings are passed through child environment variables instead of

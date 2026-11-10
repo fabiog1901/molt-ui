@@ -1,41 +1,9 @@
 """Single-pass molt log aggregation, independent of retained console history."""
 
 from collections import deque
-from dataclasses import dataclass
 import re
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from .jobs import OutputEvent
-
-
-@dataclass(slots=True)
-class TableProgress:
-    name: str
-    target: str | None = None
-    exported: int | None = None
-    imported: int | None = None
-    errors: int = 0
-    warnings: int = 0
-    log_lines: int = 0
-    skipped: bool = False
-    phase: str = "discovered"
-
-    def snapshot(self, run_status: str) -> dict:
-        status = self.phase
-        if self.errors:
-            status = "error"
-        elif self.skipped:
-            status = "skipped"
-        elif self.warnings:
-            status = "warning"
-        elif run_status in {"failed", "stopped"} and self.phase not in {"exported", "imported", "verified"}:
-            status = "interrupted"
-        return {
-            "name": self.name, "target": self.target, "exported": self.exported,
-            "imported": self.imported, "errors": self.errors, "warnings": self.warnings,
-            "log_lines": self.log_lines, "status": status, "phase": self.phase,
-        }
+from .models import OutputEvent, TableProgress
 
 
 def row_count(value: object) -> int | None:
@@ -109,7 +77,7 @@ class LogAggregator:
             return
         table = self.tables.get(name)
         if table is None:
-            table = self.tables[name] = TableProgress(name)
+            table = self.tables[name] = TableProgress(name=name)
         if isinstance(target, str) and target:
             table.target = target
         table.log_lines += 1

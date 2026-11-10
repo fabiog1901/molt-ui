@@ -5,6 +5,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, Label, RichLog, Select, Static, TabbedContent, TabPane
 
 from molt_ui.core import CliError, CliService, create_service
+from molt_ui.frontends.models import CommandDefinition
 
 
 class MoltApp(App):
@@ -34,7 +35,7 @@ class MoltApp(App):
     def __init__(self, service: CliService | None = None, *, log_path: str = "") -> None:
         super().__init__()
         self.service = service if service is not None else create_service()
-        self.catalog = self.service.commands()
+        self.catalog = [CommandDefinition.model_validate(item) for item in self.service.commands()]
         self.job = None
         self.cursor = 0
         self.output_cursor = 0
@@ -56,7 +57,7 @@ class MoltApp(App):
                 yield Input(value=self.initial_log_path, placeholder="Path to .jsonl or .log file", id="log-path")
                 yield Button("Import log", id="import-log")
                 yield Label("Command")
-                yield Select([(item["label"], item["id"]) for item in self.catalog], value="fetch", allow_blank=False, id="command")
+                yield Select([(item.label, item.id) for item in self.catalog], value="fetch", allow_blank=False, id="command")
                 yield Static("Run executes against your configured databases. Stop ends the process; it does not undo completed work.", id="notice")
                 yield Checkbox("Show advanced options", id="advanced")
                 yield Vertical(id="fields")
@@ -84,25 +85,25 @@ class MoltApp(App):
         if self.initial_log_path:
             self.import_log()
 
-    def definition(self) -> dict:
+    def definition(self) -> CommandDefinition:
         command = self.query_one("#command", Select).value
-        return next(item for item in self.catalog if item["id"] == command)
+        return next(item for item in self.catalog if item.id == command)
 
     async def render_fields(self) -> None:
         self.loading_fields = True
         try:
             container = self.query_one("#fields", Vertical)
             await container.remove_children()
-            for option in self.definition()["options"]:
-                name = option["name"]
-                field = Vertical(classes="field advanced" if option["advanced"] else "field")
+            for option in self.definition().options:
+                name = option.name
+                field = Vertical(classes="field advanced" if option.advanced else "field")
                 await container.mount(field)
                 await field.mount(Label(f"--{name}"))
-                if option["kind"] == "bool":
+                if option.kind == "bool":
                     widget = Select([("CLI default", ""), ("Yes", "true"), ("No", "false")], value="", allow_blank=False, id=f"opt-{name}")
                 else:
-                    widget = Input(password=option["secret"], id=f"opt-{name}", placeholder="CLI default")
-                widget.tooltip = option["description"]
+                    widget = Input(password=option.secret, id=f"opt-{name}", placeholder="CLI default")
+                widget.tooltip = option.description
                 await field.mount(widget)
             self.toggle_advanced()
         finally:
@@ -121,11 +122,11 @@ class MoltApp(App):
 
     def options(self) -> dict[str, str | bool]:
         values = {}
-        for option in self.definition()["options"]:
-            widget = self.query_one(f"#opt-{option['name']}")
+        for option in self.definition().options:
+            widget = self.query_one(f"#opt-{option.name}")
             value = widget.value
             if value != "":
-                values[option["name"]] = value == "true" if option["kind"] == "bool" else value
+                values[option.name] = value == "true" if option.kind == "bool" else value
         return values
 
     @on(Button.Pressed, "#run")
@@ -145,7 +146,7 @@ class MoltApp(App):
         if self.job and self.job.snapshot()["status"] == "running":
             return
         try:
-            self.job = self.service.start(self.definition()["id"], self.options(), help_only=help_only)
+            self.job = self.service.start(self.definition().id, self.options(), help_only=help_only)
         except (ValueError, CliError) as exc:
             self.show_error(str(exc))
             return

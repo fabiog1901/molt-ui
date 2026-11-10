@@ -2,13 +2,13 @@ from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
-from molt_ui.api.app import create_app
+from molt_ui.frontends.api.app import create_app
 from molt_ui.core import CliError, CliService, CommandResult, LogEntry
 
 
 def test_api_uses_the_shared_service():
     service = Mock(spec=CliService)
-    service.help.return_value = CommandResult("output", "warning", 1, (LogEntry("stderr", {"level": "warn"}),))
+    service.help.return_value = CommandResult(stdout="output", stderr="warning", returncode=1, logs=(LogEntry(stream="stderr", data={"level": "warn"}),))
     with TestClient(create_app(service)) as client:
         response = client.post("/api/cli/help")
         assert response.status_code == 200
@@ -96,7 +96,7 @@ print(json.dumps({'level': 'warn', 'message': 'global warning'}))
 def test_upload_imports_jsonl_and_preserves_a_previous_preview_on_empty_upload():
     from pathlib import Path
     with TestClient(create_app()) as client:
-        sample = Path(__file__).parents[1] / 'src/molt_ui/web/static/sample-fetch.jsonl'
+        sample = Path(__file__).parents[1] / 'src/molt_ui/webapp/static/sample-fetch.jsonl'
         response = client.post('/api/log-imports', content=b'\xef\xbb\xbf' + sample.read_bytes(), headers={'Content-Type': 'application/octet-stream'})
         assert response.status_code == 201
         preview = response.json()

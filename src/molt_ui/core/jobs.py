@@ -1,7 +1,6 @@
 """Bounded live output and process lifecycle, shared by terminal and HTTP adapters."""
 
 from collections import deque
-from dataclasses import dataclass
 import json
 import os
 import signal
@@ -10,15 +9,8 @@ from threading import Lock, Thread
 from uuid import uuid4
 
 from .cli import CliError
+from .models import OutputEvent
 from .aggregation import LogAggregator
-
-
-@dataclass(frozen=True, slots=True)
-class OutputEvent:
-    sequence: int
-    stream: str
-    text: str
-    data: dict[str, object] | None
 
 
 class Job:
@@ -51,7 +43,7 @@ class Job:
                 data = None
             with self._lock:
                 self._sequence += 1
-                event = OutputEvent(self._sequence, stream, text, data)
+                event = OutputEvent(sequence=self._sequence, stream=stream, text=text, data=data)
                 self._events.append(event)
                 self._aggregation.ingest(event)
 

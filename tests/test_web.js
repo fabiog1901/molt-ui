@@ -19,7 +19,7 @@ function createApp(responses) {
       return { ok: (response.status || 200) < 400, status: response.status || 200, json: async () => response.body, blob: async () => response.blobBody };
     },
   };
-  vm.runInNewContext(fs.readFileSync('src/molt_ui/web/static/app.js', 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync('src/molt_ui/webapp/static/app.js', 'utf8'), context);
   return { app: factory(), calls, scheduled: () => scheduled };
 }
 

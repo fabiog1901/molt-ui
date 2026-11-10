@@ -7,7 +7,7 @@ from molt_ui.core.jobs import OutputEvent
 
 
 def feed(aggregator, **data):
-    aggregator.ingest(OutputEvent(aggregator.snapshot()['totals']['log_lines'] + 1, 'stdout', json.dumps(data), data))
+    aggregator.ingest(OutputEvent(sequence=aggregator.snapshot()['totals']['log_lines'] + 1, stream='stdout', text=json.dumps(data), data=data))
 
 
 def test_supplied_fetch_sample_totals_and_table_attribution():
@@ -83,7 +83,7 @@ def test_aliases_errors_and_global_messages_are_handled_without_worker_guessing(
 def test_detail_retention_is_globally_bounded_but_counts_cover_all_lines():
     aggregator = LogAggregator()
     for index in range(10000):
-        aggregator.ingest(OutputEvent(index + 1, 'stdout', 'entry', {'table': 'public.actor', 'level': 'warn'}))
+        aggregator.ingest(OutputEvent(sequence=index + 1, stream='stdout', text='entry', data={'table': 'public.actor', 'level': 'warn'}))
     snapshot = aggregator.snapshot()
     assert snapshot['totals']['log_lines'] == 10000
     assert snapshot['totals']['warnings'] == 10000

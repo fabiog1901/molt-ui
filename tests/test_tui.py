@@ -5,7 +5,7 @@ from unittest.mock import Mock
 from textual.widgets import Input, RichLog, Select, Static, TabbedContent
 
 from molt_ui.core import CliRunner, CliService
-from molt_ui.tui.app import MoltApp
+from molt_ui.frontends.tui.app import MoltApp
 
 
 def test_tui_builds_options_and_runs_shared_service():
@@ -81,7 +81,7 @@ def test_tui_imports_the_sample_without_running_molt():
     from textual.widgets import DataTable
 
     async def scenario():
-        sample = Path(__file__).parents[1] / 'src/molt_ui/web/static/sample-fetch.jsonl'
+        sample = Path(__file__).parents[1] / 'src/molt_ui/webapp/static/sample-fetch.jsonl'
         app = MoltApp(log_path=str(sample))
         with patch('molt_ui.core.jobs.subprocess.Popen') as spawn:
             async with app.run_test(size=(120, 40)) as pilot:

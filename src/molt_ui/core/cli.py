@@ -1,24 +1,19 @@
 """Process execution shared by both UIs; no UI framework dependencies."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import subprocess
 import shlex
 
+from .models import CommandResult, LogEntry
+
 LOCAL_EXECUTABLE = Path(__file__).resolve().parents[3] / "molt" / "molt"
 
 
 class CliError(RuntimeError):
     """The executable could not be started or did not finish in time."""
-
-
-@dataclass(frozen=True, slots=True)
-class LogEntry:
-    stream: str
-    data: dict[str, object]
 
 
 def parse_logs(output: str, stream: str) -> tuple[LogEntry, ...]:
@@ -29,16 +24,8 @@ def parse_logs(output: str, stream: str) -> tuple[LogEntry, ...]:
         except json.JSONDecodeError:
             continue
         if isinstance(data, dict):
-            entries.append(LogEntry(stream, data))
+            entries.append(LogEntry(stream=stream, data=data))
     return tuple(entries)
-
-
-@dataclass(frozen=True, slots=True)
-class CommandResult:
-    stdout: str
-    stderr: str
-    returncode: int
-    logs: tuple[LogEntry, ...] = ()
 
 
 class CliRunner:
@@ -66,8 +53,8 @@ class CliRunner:
         except OSError as exc:
             raise CliError(f"Could not start CLI: {exc}") from exc
         return CommandResult(
-            process.stdout, process.stderr, process.returncode,
-            parse_logs(process.stdout, "stdout") + parse_logs(process.stderr, "stderr"),
+            stdout=process.stdout, stderr=process.stderr, returncode=process.returncode,
+            logs=parse_logs(process.stdout, "stdout") + parse_logs(process.stderr, "stderr"),
         )
 
 

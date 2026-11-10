@@ -11,15 +11,16 @@ dependencies = [
     "fastapi>=0.115,<1",
     "uvicorn>=0.34,<1",
     "textual>=6.12,<7",
+    "pydantic>=2,<3",
 ]
 
 [project.scripts]
-molt-tui = "molt_ui.tui.app:main"
-molt-web = "molt_ui.api.app:main"
+molt-tui = "molt_ui.frontends.tui.app:main"
+molt-web = "molt_ui.frontends.api.app:main"
 
 [tool.poetry]
 packages = [{include = "molt_ui", from = "src"}]
-include = [{path = "src/molt_ui/web/**/*", format = ["sdist", "wheel"]}]
+include = [{path = "src/molt_ui/webapp/**/*", format = ["sdist", "wheel"]}]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"

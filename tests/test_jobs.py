@@ -88,7 +88,7 @@ def test_imported_logs_use_the_same_aggregator_without_spawning_a_process():
     from unittest.mock import patch
     manager = JobManager()
     try:
-        path = Path(__file__).parents[1] / 'src/molt_ui/web/static/sample-fetch.jsonl'
+        path = Path(__file__).parents[1] / 'src/molt_ui/webapp/static/sample-fetch.jsonl'
         with patch('molt_ui.core.jobs.subprocess.Popen') as spawn:
             with path.open() as source:
                 job = manager.import_log(source)

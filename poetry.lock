@@ -640,4 +640,4 @@ standard = ["httptools (>=0.8.0)", "python-dotenv (>=0.13)", "pyyaml (>=5.1)", "
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14,<4"
-content-hash = "70d5a482ac2d8e9fcbadf6490e5ada25400dd9358047874b927eda1a0b3118aa"
+content-hash = "aaec124b6fbdaa32c3794361c1021bc5c4dba85b181fe868396f07c63b6f5879"
