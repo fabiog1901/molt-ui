@@ -39,22 +39,22 @@ def test_cli_failure_is_returned_to_the_ui():
         assert response.json()["detail"] == "Executable missing"
 
 
-def test_frontend_assets_are_served():
-    with TestClient(create_app()) as client:
+def test_frontend_assets_are_served(command_catalog):
+    with TestClient(create_app(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog))) as client:
         assert 'x-data="cliApp"' in client.get("/").text
         for path in ("/static/styles.css", "/static/app.js"):
             assert client.get(path).status_code == 200
         assert client.get("/api/unknown").status_code == 404
 
 
-def test_job_api_runs_real_help_and_reports_validation_errors():
+def test_job_api_runs_real_help_and_reports_validation_errors(command_catalog):
     import sys
     import time
 
-    service = MoltService(MoltProcess(sys.executable), Repo())
+    service = MoltService(MoltProcess(sys.executable), Repo(), catalog=command_catalog)
     with TestClient(create_app(service)) as client:
         commands = client.get("/api/commands").json()
-        assert commands[0]["id"] == "fetch"
+        assert any(command["id"] == "fetch" for command in commands)
         assert client.post("/api/jobs", json={"command": "invalid"}).status_code == 422
         assert (
             client.post(
@@ -85,11 +85,11 @@ def test_job_api_runs_real_help_and_reports_validation_errors():
         assert client.get("/api/jobs/missing").status_code == 404
 
 
-def test_aggregate_snapshot_and_lazy_table_logs_are_consistent():
+def test_aggregate_snapshot_and_lazy_table_logs_are_consistent(command_catalog):
     import sys
     import time
 
-    service = MoltService(MoltProcess(sys.executable), Repo())
+    service = MoltService(MoltProcess(sys.executable), Repo(), catalog=command_catalog)
     with TestClient(create_app(service)) as client:
         code = """import json
 print(json.dumps({'level': 'info', 'source_table': 'public.actor', 'target_table': 'public.actor', 'message': 'found matching table'}))
@@ -140,10 +140,10 @@ print(json.dumps({'level': 'warn', 'message': 'global warning'}))
         )
 
 
-def test_upload_imports_jsonl_and_preserves_a_previous_preview_on_empty_upload():
+def test_upload_imports_jsonl_and_preserves_a_previous_preview_on_empty_upload(command_catalog):
     from pathlib import Path
 
-    with TestClient(create_app()) as client:
+    with TestClient(create_app(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog))) as client:
         sample = (
             Path(__file__).parents[1] / "src/molt_ui/webapp/static/sample-fetch.jsonl"
         )
@@ -171,13 +171,13 @@ def test_upload_imports_jsonl_and_preserves_a_previous_preview_on_empty_upload()
         assert client.get("/static/sample-fetch.jsonl").status_code == 200
 
 
-def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(tmp_path):
+def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(command_catalog, tmp_path):
     import sys
     import time
     from unittest.mock import patch
 
     database = str(tmp_path / "metadata.sqlite3")
-    service = MoltService(MoltProcess(sys.executable), Repo(database))
+    service = MoltService(MoltProcess(sys.executable), Repo(database), catalog=command_catalog)
     with TestClient(create_app(service)) as client:
         with patch("molt_ui.molt_process.subprocess.Popen") as spawn:
             response = client.post(
@@ -193,7 +193,8 @@ def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(tmp_path)
                 },
             )
             assert response.status_code == 200
-            assert response.json()["omitted"] == ["bucket-path"]
+            assert response.json()["omitted"] == []
+            assert "--bucket-path=s3://bucket" in response.json()["argv"]
             assert "user:secret@source" in response.json()["invocation"]
             assert client.get("/api/history").json() == []
             spawn.assert_not_called()
@@ -209,7 +210,7 @@ def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(tmp_path)
             time.sleep(0.01)
         record_id = state["record"]["id"]
         assert state["record"]["invocation"].endswith("fetch --help")
-    restarted = MoltService(MoltProcess("molt"), Repo(database))
+    restarted = MoltService(MoltProcess("molt"), Repo(database), catalog=command_catalog)
     with TestClient(create_app(restarted)) as client:
         records = client.get("/api/history").json()
         assert records[0]["id"] == record_id
@@ -220,8 +221,8 @@ def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(tmp_path)
         assert client.get("/api/history/unknown").status_code == 404
 
 
-def test_source_picker_context_is_used_by_preview_and_not_emitted_as_a_cli_flag():
-    with TestClient(create_app()) as client:
+def test_source_picker_is_frontend_context_and_does_not_change_execution_plan(command_catalog):
+    with TestClient(create_app(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog))) as client:
         response = client.post(
             "/api/command-preview",
             json={
@@ -237,7 +238,8 @@ def test_source_picker_context_is_used_by_preview_and_not_emitted_as_a_cli_flag(
         )
         assert response.status_code == 200
         preview = response.json()
-        assert preview["omitted"] == ["pglogical-replication-slot-name"]
+        assert preview["omitted"] == []
+        assert "--pglogical-replication-slot-name=not-for-oracle" in preview["argv"]
         assert "--oracle-application-users=app" in preview["argv"]
         assert not any("source_kind" in argument for argument in preview["argv"])
         assert (
@@ -252,5 +254,19 @@ def test_source_picker_context_is_used_by_preview_and_not_emitted_as_a_cli_flag(
                     },
                 },
             ).status_code
-            == 422
+            == 200
         )
+
+
+def test_incompatible_modal_catalog_is_reported_as_an_actionable_error(command_catalog):
+
+    service = Mock(spec=MoltService)
+    fetch = next(spec for spec in command_catalog.commands if spec.id == "fetch")
+    service.commands.return_value = (fetch.model_copy(update={
+        "options": tuple(option for option in fetch.options if option.name != "source"),
+    }),)
+    with TestClient(create_app(service)) as client:
+        response = client.get("/api/commands")
+        assert response.status_code == 503
+        assert "no longer contains --source" in response.json()["detail"]
+        assert client.get("/").status_code == 200

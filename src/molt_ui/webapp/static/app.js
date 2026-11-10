@@ -56,12 +56,12 @@ document.addEventListener('alpine:init', () => {
     },
     fieldValue(option) {
       const value = this.values[option.name];
-      if (value !== undefined && value !== '') return option.kind === 'bool' ? value === true || value === 'true' : value;
+      if (value !== undefined) return option.kind === 'bool' ? value === true || value === 'true' : value;
       const dialect = this.sourceKind || this.definition?.default_source_dialect;
       return option.default_by_source?.[dialect] ?? option.default ?? (option.kind === 'bool' ? false : '');
     },
     setOption(option, value) {
-      if (value === '') delete this.values[option.name];
+      if (value === '' && (!option.default || option.choices?.length)) delete this.values[option.name];
       else this.values[option.name] = value;
       if (option.name === 'logging' && value && value !== 'disabled') this.previousLogLevel = value;
       this.parametersChanged();
@@ -167,10 +167,11 @@ document.addEventListener('alpine:init', () => {
     async init() {
       try {
         this.commands = await this.request('/api/commands');
+        if (!this.definition) this.command = this.commands[0]?.id || '';
         const latest = await this.request('/api/jobs');
         if (latest) {
           if (this.$refs?.configuration) this.$refs.configuration.open = false;
-          this.command = latest.command;
+          if (this.commands.some(item => item.id === latest.command)) this.command = latest.command;
           this.applySnapshot(latest);
           if (this.running) this.schedulePoll();
         }
@@ -220,7 +221,7 @@ document.addEventListener('alpine:init', () => {
       const result = {};
       for (const option of this.definition?.options || []) {
         const value = this.values[option.name];
-        if (value !== undefined && value !== '') {
+        if (value !== undefined && (value !== '' || Boolean(option.default))) {
           result[option.name] = option.kind === 'bool' ? value === true || value === 'true' : String(value);
         }
       }

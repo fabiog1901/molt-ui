@@ -286,3 +286,33 @@ test('disable logging preserves the selected level and restores it when unchecke
   assert.equal(Object.hasOwn(app.options(),'logging'),false);
   assert.equal(app.fieldValue(option),'info');
 });
+
+test('catalog incompatibility is visible and leaves command configuration unavailable', async () => {
+  const { app, calls } = createApp([{ status: 503, body: { detail: 'Cannot display fetch: catalog changed.' } }]);
+  await app.init();
+  assert.equal(app.error, 'Cannot display fetch: catalog changed.');
+  assert.equal(app.commands.length, 0);
+  assert.equal(calls.length, 1);
+});
+
+test('a discovered command can become the initial selection when fetch is absent', async () => {
+  const { app } = createApp([{ body: [{ id: 'future', options: [] }] }, { body: null }]);
+  await app.init();
+  assert.equal(app.command, 'future');
+  assert.equal(app.definition.id, 'future');
+});
+
+test('clearing a nonempty CLI default preserves an explicit empty argument', () => {
+  const { app } = createApp([]);
+  const url = { name: 'url', kind: 'string', default: 'postgres://root@localhost/db' };
+  const source = { name: 'source', kind: 'string', default: '' };
+  app.commands = [{ id: 'convert-postgres', options: [url, source] }];
+  app.command = 'convert-postgres';
+  assert.equal(app.fieldValue(url), url.default);
+  assert.deepEqual(Object.keys(app.options()), []);
+  app.setOption(url, '');
+  assert.equal(app.fieldValue(url), '');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.options())), { url: '' });
+  app.setOption(source, '');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.options())), { url: '' });
+});

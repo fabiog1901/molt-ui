@@ -22,7 +22,6 @@ molt-web = "molt_ui.frontends.api.app:main"
 packages = [{include = "molt_ui", from = "src"}]
 include = [
     {path = "src/molt_ui/webapp/**/*", format = ["sdist", "wheel"]},
-    {path = "resources/command_catalog.json", format = ["sdist", "wheel"]},
 ]
 
 [tool.poetry.group.dev.dependencies]

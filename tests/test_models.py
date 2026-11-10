@@ -2,17 +2,16 @@ import pytest
 from pydantic import ValidationError
 
 from molt_ui.core.models import CommandResult, LogEntry, OutputEvent, TableProgress
-from molt_ui.core.options import command_definitions
 from molt_ui.frontends.models import CommandDefinition, StartCommand
 
 
-def test_frontend_mapping_adds_display_metadata_without_changing_core_models():
-    for specification in command_definitions(environment={}):
+def test_frontend_mapping_adds_display_metadata_without_changing_core_models(command_catalog):
+    for specification in command_catalog.commands:
         before = specification.model_dump_json()
         model = CommandDefinition.from_spec(specification)
         assert CommandDefinition.model_validate_json(model.model_dump_json()) == model
         assert {option.name for option in model.options} == {option.name for option in specification.options}
-        assert model.options[0].stage == "connections"
+        assert all(option.stage for option in model.options)
         assert "stage" not in specification.options[0].model_dump()
         assert specification.model_dump_json() == before
 

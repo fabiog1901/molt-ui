@@ -1,270 +1,101 @@
+import shlex
+
 import pytest
 
-from molt_ui.core.commands import build_command
-from molt_ui.core.catalog import load_catalog
-from molt_ui.core.options import command_definitions, normalize_options
-from molt_ui.frontends.models import CommandDefinition
+from molt_ui.core.commands import build_command, build_plan
+from molt_ui.core.models import CommandCatalog, CommandSpec, OptionSpec
 
 
-def frontend_catalog():
-    return [CommandDefinition.from_spec(spec).model_dump(exclude_unset=True)
-            for spec in command_definitions()]
-
-
-def test_fetch_keeps_credentials_in_child_environment_and_arguments_literal():
-    arguments, env = build_command(
-        "fetch",
-        {
-            "source": "postgres://user:password@source/db",
-            "target": "postgres://target/db",
-            "direct-copy": True,
-            "table-filter": "users; echo test",
-            "table-concurrency": "2",
-        },
-    )
-    assert arguments == [
-        "fetch",
-        "--direct-copy=true",
-        "--table-filter=users; echo test",
-        "--table-concurrency=2",
-    ]
-    assert env["MOLT_SOURCE"] == "postgres://user:password@source/db"
-    assert not any("password" in arg for arg in arguments)
-
-
-@pytest.mark.parametrize(
-    "options",
-    [
-        {"unknown": "value"},
-        {"direct-copy": "true"},
-        {"table-concurrency": "two"},
-    ],
-)
-def test_invalid_options_are_rejected(options, monkeypatch):
-    monkeypatch.setenv("MOLT_SOURCE", "source")
-    monkeypatch.setenv("MOLT_TARGET", "target")
-    with pytest.raises(ValueError):
-        build_command("fetch", options)
-
-
-def test_connections_are_required_unless_in_environment(monkeypatch):
-    monkeypatch.delenv("MOLT_SOURCE", raising=False)
-    monkeypatch.delenv("MOLT_TARGET", raising=False)
-    with pytest.raises(ValueError, match="source"):
-        build_command("fetch", {})
-    monkeypatch.setenv("MOLT_SOURCE", "source")
-    monkeypatch.setenv("MOLT_TARGET", "target")
-    assert build_command("verify", {"rows": False})[0] == ["verify", "--rows=false"]
-
-
-def test_help_does_not_require_connections():
-    assert build_command("fetch", {}, help_only=True) == (["fetch", "--help"], {})
-    with pytest.raises(ValueError):
-        build_command("arbitrary", {}, help_only=True)
-
-
-def test_conversion_defaults_to_printing_without_database_evaluation():
-    args, env = build_command("convert-postgres", {"schema": "/tmp/schema.sql"})
-    assert args == [
-        "convert",
-        "postgres",
-        "--schema=/tmp/schema.sql",
-        "--out=-",
-        "--url=",
-    ]
-    assert env == {}
-    with pytest.raises(ValueError, match="schema"):
-        build_command("convert-mysql", {})
-
-
-def test_catalog_has_unique_flags_and_boolean_copy_option():
-    for command in load_catalog().commands:
-        names = [option.name for option in command.options]
-        assert len(names) == len(set(names))
-    fetch = load_catalog().commands[0]
-    assert next(option for option in fetch.options if option.name == "use-copy").kind == "bool"
-
-
-def test_staged_transfer_and_dialect_specific_options_are_pruned():
-
-    options, omitted = normalize_options(
-        "fetch",
-        {
-            "source": "mysql://source/db",
-            "target": "postgres://target/db",
-            "mode": "export-only",
-            "direct-copy": True,
-            "bucket-path": "s3://bucket",
-            "source-cdb": "oracle://cdb",
-            "pglogical-replication-slot-name": "slot",
-            "require-empty-target": True,
-        },
-    )
-    assert "direct-copy" not in options
-    assert options["bucket-path"] == "s3://bucket"
-    assert set(omitted) == {
-        "direct-copy",
-        "source-cdb",
-        "pglogical-replication-slot-name",
-        "require-empty-target",
-    }
-
-
-def test_recreate_options_only_survive_when_recreating_tables():
-
+def test_credentials_and_literal_arguments_are_preserved(command_catalog):
     options = {
-        "table-handling": "none",
-        "dropped-constraints-file": "/tmp/constraints.sql",
+        "source": "postgres://user:password@source/db",
+        "target": "postgres://target/db",
+        "direct-copy": True,
+        "table-filter": "users; echo test",
+        "table-concurrency": "2",
     }
-    assert "dropped-constraints-file" not in normalize_options("fetch", options)[0]
-    options["table-handling"] = "drop-on-target-and-recreate"
-    assert "dropped-constraints-file" in normalize_options("fetch", options)[0]
+    plan = build_plan("/path with spaces/molt", "fetch", options, environment={}, catalog=command_catalog)
+    assert plan.argv == (
+        "/path with spaces/molt", "fetch", "--direct-copy=true",
+        "--table-filter=users; echo test", "--table-concurrency=2",
+    )
+    assert plan.environment["MOLT_SOURCE"] == options["source"]
+    assert plan.options == options
+    assert shlex.split(plan.invocation)[-2] == "--table-filter=users; echo test"
 
 
-def test_connection_type_and_enum_validation_happen_before_preview():
+@pytest.mark.parametrize("options", [
+    {"table-concurrency": "two"},
+    {"mode": "new-mode"},
+    {"logging": "new-level"},
+    {"direct-copy": True, "bucket-path": "s3://bucket", "local-path": "/tmp/staging"},
+    {"source": "mysql://source/db", "oracle-application-users": "app"},
+])
+def test_command_semantics_are_forwarded_to_molt_without_pruning(command_catalog, options):
+    plan = build_plan("molt", "fetch", options, environment={}, catalog=command_catalog)
+    assert plan.options == options
+    assert plan.omitted == ()
+    for name, value in options.items():
+        if name != "source":
+            text = str(value).lower() if isinstance(value, bool) else value
+            assert f"--{name}={text}" in plan.argv
 
+
+def test_missing_required_parameters_are_left_to_molt(command_catalog):
+    assert build_command("fetch", {}, environment={}, catalog=command_catalog) == (["fetch"], {})
+    assert build_command("convert-mysql", {}, environment={}, catalog=command_catalog) == (["convert", "mysql"], {})
+
+
+def test_inherited_environment_and_explicit_overrides_are_recorded(command_catalog):
+    plan = build_plan("molt", "fetch", {"source": "explicit"}, environment={
+        "MOLT_SOURCE": "inherited", "MOLT_TARGET": "target", "UNRELATED": "ignored",
+    }, catalog=command_catalog)
+    assert plan.environment == {"MOLT_SOURCE": "explicit", "MOLT_TARGET": "target"}
+    assert build_command("verify", {"rows": False}, environment={}, catalog=command_catalog)[0] == ["verify", "--rows=false"]
+
+
+def test_help_ignores_configuration_and_does_not_require_connections(command_catalog):
+    assert build_command("fetch", {"unknown": "ignored"}, help_only=True, catalog=command_catalog) == (["fetch", "--help"], {})
+
+
+def test_unknown_catalog_entries_produce_a_drift_error(command_catalog):
+    with pytest.raises(ValueError, match="catalog"):
+        build_command("fetch", {"new-option": "value"}, catalog=command_catalog)
+    with pytest.raises(ValueError, match="Unknown molt command"):
+        build_command("missing-command", {}, catalog=command_catalog)
+
+
+@pytest.mark.parametrize("options", [{"source": "invalid\x00text"}, {"mode": 123}])
+def test_values_that_cannot_use_our_argv_contract_are_rejected(command_catalog, options):
     with pytest.raises(ValueError):
-        normalize_options("fetch", {"source": True})
-    with pytest.raises(ValueError):
-        normalize_options("fetch", {"mode": "invalid"})
+        build_command("fetch", options, catalog=command_catalog)
 
 
-def test_wizard_exposes_real_defaults_and_required_fields(monkeypatch):
-
-    monkeypatch.delenv("MOLT_SOURCE", raising=False)
-    monkeypatch.delenv("MOLT_TARGET", raising=False)
-    catalog = {
-        command["id"]: {option["name"]: option for option in command["options"]}
-        for command in frontend_catalog()
-    }
-    fetch = catalog["fetch"]
-    assert fetch["mode"]["default"] == "data-load"
-    assert fetch["compression"]["default"] == "gzip"
-    assert fetch["table-handling"]["default"] == "none"
-    assert fetch["table-concurrency"]["default"] == "4"
-    assert fetch["allow-tls-mode-disable"]["default"] is False
-    assert fetch["use-stats-based-sharding"]["default_by_source"]["postgres"] is True
-    assert fetch["source"]["required"] is True
-    assert fetch["target"]["required"] is True
-    assert fetch["source-cdb"]["required"] is False
-    assert catalog["verify"]["rows"]["default"] is True
-    assert catalog["convert-postgres"]["schema"]["required"] is True
-    assert catalog["convert-postgres"]["out"]["default"] == "-"
-    assert catalog["convert-postgres"]["url"]["default"] == ""
-    monkeypatch.setenv("MOLT_SOURCE", "postgres://example/db")
-    fetch = next(command for command in frontend_catalog() if command["id"] == "fetch")
-    source = next(option for option in fetch["options"] if option["name"] == "source")
-    assert source["required"] is False
-    assert source["from_environment"] is True
-    assert (
-        source["default"] == ""
-    )  # Do not expose inherited credentials in catalog metadata.
-
-
-def test_explicit_source_selection_filters_options_without_a_uri():
-
-    options, removed = normalize_options(
-        "fetch",
-        {
-            "oracle-application-users": "app",
-            "pglogical-replication-slot-name": "slot",
-            "source-cdb": "user=app password=example",
-        },
-        source_kind="oracle",
+def test_conversion_uses_only_explicit_flags_and_preserves_empty_values(command_catalog):
+    assert build_command("convert-postgres", {"schema": "/tmp/schema.sql"}, catalog=command_catalog) == (
+        ["convert", "postgres", "--schema=/tmp/schema.sql"], {},
     )
-    assert options["oracle-application-users"] == "app"
-    assert options["source-cdb"] == "user=app password=example"
-    assert removed == ["pglogical-replication-slot-name"]
-    options, removed = normalize_options(
-        "fetch", {"oracle-application-users": "app"}, source_kind="mysql"
-    )
-    assert options == {}
-    assert removed == ["oracle-application-users"]
-    with pytest.raises(ValueError, match="does not match"):
-        normalize_options(
-            "fetch", {"source": "mysql://example/db"}, source_kind="postgres"
-        )
-    with pytest.raises(ValueError, match="Choose PostgreSQL"):
-        normalize_options("fetch", {}, source_kind="invalid")
-
-
-def test_logging_metrics_and_telemetry_have_dedicated_wizard_tabs():
-
-    for command in frontend_catalog():
-        options = {option["name"]: option for option in command["options"]}
-        if command["id"] in {"fetch", "verify"}:
-            for name in ("logging", "log-file", "use-console-writer"):
-                assert options[name]["stage"] == "logging"
-            for name in (
-                "metrics-listen-addr",
-                "metrics-scrape-interval",
-                "opt-out-telemetry",
-            ):
-                assert options[name]["stage"] == "metrics"
-        if "pprof-listen-addr" in options:
-            assert options["pprof-listen-addr"]["stage"] == "metrics"
-
-
-@pytest.mark.parametrize(
-    "level", ["trace", "debug", "info", "warn", "error", "fatal", "panic"]
-)
-def test_logging_dropdown_levels_are_valid_and_preserved_in_argv(level):
-
-    command = next(item for item in frontend_catalog() if item["id"] == "verify")
-    option = next(item for item in command["options"] if item["name"] == "logging")
-    assert option["default"] == "info"
-    assert level in {choice["value"] for choice in option["choices"]}
-    arguments, _ = build_command(
-        "verify",
-        {
-            "source": "postgres://source/db",
-            "target": "postgres://target/db",
-            "logging": level,
-        },
-    )
-    assert "--logging=" + level in arguments
-
-
-def test_logging_dropdown_rejects_unknown_levels():
-
-    with pytest.raises(ValueError, match="valid value for --logging"):
-        normalize_options("fetch", {"logging": "verbose"})
-
-
-def test_disabling_logging_uses_the_flag_without_appearing_in_the_level_choices():
-
-    options = next(command for command in frontend_catalog() if command["id"] == "fetch")[
-        "options"
+    assert build_command("convert-postgres", {"out": "-", "url": ""}, catalog=command_catalog)[0] == [
+        "convert", "postgres", "--out=-", "--url=",
     ]
-    logging = next(option for option in options if option["name"] == "logging")
-    assert all(choice["value"] == choice["label"] for choice in logging["choices"])
-    assert "disabled" not in {choice["value"] for choice in logging["choices"]}
-    assert "" not in {choice["value"] for choice in logging["choices"]}
-    arguments, _ = build_command(
-        "fetch",
-        {
-            "source": "postgres://source/db",
-            "target": "postgres://target/db",
-            "logging": "disabled",
-        },
+
+
+def test_new_command_and_environment_flag_need_no_builder_configuration():
+    definition = CommandSpec(id="future", arguments=("future", "run"), options=(
+        OptionSpec(name="token", kind="string", description="Token", default="", environment_variable="MOLT_TOKEN"),
+        OptionSpec(name="future-switch", kind="bool", description="Switch", default=False),
+    ))
+    catalog = CommandCatalog(schema_version=1, commands=(definition,))
+    plan = build_plan(
+        "molt", "future", {"token": "exact", "future-switch": False},
+        environment={}, catalog=catalog,
     )
-    assert "--logging=disabled" in arguments
-    assert normalize_options("fetch", {"logging": ""}) == ({"logging": ""}, [])
+    assert plan.argv == ("molt", "future", "run", "--future-switch=false")
+    assert plan.environment == {"MOLT_TOKEN": "exact"}
 
 
-@pytest.mark.parametrize("command", ["fetch", "verify"])
-def test_log_file_preserves_cli_default_unless_explicitly_overridden(command):
-
-    options = {"source": "postgres://source/db", "target": "postgres://target/db"}
-    args, _ = build_command(command, options)
-    assert not any(argument.startswith("--log-file=") for argument in args)
-    definition = next(item for item in frontend_catalog() if item["id"] == command)
-    log_file = next(
-        option for option in definition["options"] if option["name"] == "log-file"
-    )
-    assert log_file["default"] == ""
-    assert command + "-{datetime}.log" in log_file["default_label"]
-    args, _ = build_command(command, {**options, "log-file": "stdout"})
-    assert "--log-file=stdout" in args
-    args, _ = build_command(command, {**options, "log-file": "/tmp/custom.log"})
-    assert "--log-file=/tmp/custom.log" in args
+def test_catalog_has_unique_flags_and_boolean_copy_option(command_catalog):
+    for command in command_catalog.commands:
+        assert len({option.name for option in command.options}) == len(command.options)
+    fetch = next(spec for spec in command_catalog.commands if spec.id == "fetch")
+    assert next(option for option in fetch.options if option.name == "use-copy").kind == "bool"

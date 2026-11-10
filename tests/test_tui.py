@@ -11,9 +11,9 @@ from molt_ui.repo import Repo
 from molt_ui.frontends.tui.app import MoltApp
 
 
-def test_tui_builds_options_and_runs_shared_service():
+def test_tui_builds_options_and_runs_shared_service(command_catalog):
     async def scenario():
-        service = MoltService(MoltProcess(sys.executable), Repo())
+        service = MoltService(MoltProcess(sys.executable), Repo(), catalog=command_catalog)
         service.preview = Mock(
             return_value=CommandPlan(
                 command="fetch",
@@ -54,11 +54,11 @@ def test_tui_builds_options_and_runs_shared_service():
     asyncio.run(scenario())
 
 
-def test_tui_shows_aggregate_counts_and_filters_table_details():
+def test_tui_shows_aggregate_counts_and_filters_table_details(command_catalog):
     from textual.widgets import DataTable
 
     async def scenario():
-        service = MoltService(MoltProcess(sys.executable), Repo())
+        service = MoltService(MoltProcess(sys.executable), Repo(), catalog=command_catalog)
         app = MoltApp(service)
         async with app.run_test(size=(120, 40)) as pilot:
             code = """import json
@@ -101,7 +101,7 @@ print(json.dumps({'level': 'warn', 'message': 'global warning'}))
     asyncio.run(scenario())
 
 
-def test_tui_imports_the_sample_without_running_molt():
+def test_tui_imports_the_sample_without_running_molt(command_catalog):
     from pathlib import Path
     from unittest.mock import patch
     from textual.widgets import DataTable
@@ -110,7 +110,7 @@ def test_tui_imports_the_sample_without_running_molt():
         sample = (
             Path(__file__).parents[1] / "src/molt_ui/webapp/static/sample-fetch.jsonl"
         )
-        app = MoltApp(log_path=str(sample))
+        app = MoltApp(MoltService(MoltProcess(sys.executable), Repo(), catalog=command_catalog), log_path=str(sample))
         with patch("molt_ui.molt_process.subprocess.Popen") as spawn:
             async with app.run_test(size=(120, 40)) as pilot:
                 await app.workers.wait_for_complete()

@@ -24,9 +24,9 @@ def wait_for(service, run):
     raise AssertionError("Run did not finish")
 
 
-def test_exact_credentials_and_invocation_roundtrip_storage(tmp_path):
+def test_exact_credentials_and_invocation_roundtrip_storage(command_catalog, tmp_path):
     path = str(tmp_path / "runs.sqlite3")
-    service = MoltService(MoltProcess("/path with spaces/molt"), Repo(path))
+    service = MoltService(MoltProcess("/path with spaces/molt"), Repo(path), catalog=command_catalog)
     source = "postgres://user:p@ss$word@source/db?sslmode=require"
     options = {
         "source": source,
@@ -55,9 +55,9 @@ def test_exact_credentials_and_invocation_roundtrip_storage(tmp_path):
     service.close()
 
 
-def test_completion_is_persisted_without_polling(tmp_path):
+def test_completion_is_persisted_without_polling(command_catalog, tmp_path):
     path = str(tmp_path / "runs.sqlite3")
-    service = MoltService(MoltProcess(sys.executable), Repo(path))
+    service = MoltService(MoltProcess(sys.executable), Repo(path), catalog=command_catalog)
     plan = CommandPlan(
         command="fetch",
         argv=(sys.executable, "--help"),
@@ -85,8 +85,8 @@ def test_completion_is_persisted_without_polling(tmp_path):
     service.close()
 
 
-def test_preview_is_nonexecuting_and_prunes_invalid_options():
-    service = MoltService(MoltProcess("molt"), Repo())
+def test_preview_is_nonexecuting_and_preserves_submitted_options(command_catalog):
+    service = MoltService(MoltProcess("molt"), Repo(), catalog=command_catalog)
     with patch("molt_ui.molt_process.subprocess.Popen") as spawn:
         plan = service.preview(
             "fetch",
@@ -100,19 +100,17 @@ def test_preview_is_nonexecuting_and_prunes_invalid_options():
             },
         )
         spawn.assert_not_called()
-    assert set(plan.omitted) == {
-        "bucket-path",
-        "assume-role",
-        "oracle-application-users",
-    }
-    assert "bucket-path" not in plan.options
+    assert plan.omitted == ()
+    assert "--bucket-path=s3://bucket" in plan.argv
+    assert "--oracle-application-users=user" in plan.argv
+    assert plan.options["bucket-path"] == "s3://bucket"
     assert service.list_history() == []
     service.close()
 
 
-def test_import_records_have_no_fabricated_command(tmp_path):
+def test_import_records_have_no_fabricated_command(command_catalog, tmp_path):
     path = str(tmp_path / "runs.sqlite3")
-    service = MoltService(MoltProcess("molt"), Repo(path))
+    service = MoltService(MoltProcess("molt"), Repo(path), catalog=command_catalog)
     run = service.import_log(
         StringIO(
             '{"table":"public.actor","num_rows":200,"message":"data extraction from source complete"}\n'
@@ -127,11 +125,11 @@ def test_import_records_have_no_fabricated_command(tmp_path):
     service.close()
 
 
-def test_storage_failure_prevents_launch_and_failed_import_preserves_latest_run():
+def test_storage_failure_prevents_launch_and_failed_import_preserves_latest_run(command_catalog):
     from molt_ui.repo.repo import RepoError
 
     repo = Repo()
-    service = MoltService(MoltProcess("molt"), repo)
+    service = MoltService(MoltProcess("molt"), repo, catalog=command_catalog)
     original = service.import_log(StringIO("original log\n"))
     with patch.object(repo, "create_run", side_effect=RepoError("disk full")):
         with patch("molt_ui.molt_process.subprocess.Popen") as spawn:
@@ -151,9 +149,9 @@ def test_storage_failure_prevents_launch_and_failed_import_preserves_latest_run(
     service.close()
 
 
-def test_close_stops_the_live_run_and_persists_its_final_status(tmp_path):
+def test_close_stops_the_live_run_and_persists_its_final_status(command_catalog, tmp_path):
     path = str(tmp_path / "runs.sqlite3")
-    service = MoltService(MoltProcess(sys.executable), Repo(path))
+    service = MoltService(MoltProcess(sys.executable), Repo(path), catalog=command_catalog)
     plan = CommandPlan(
         command="fetch",
         argv=(sys.executable, "-c", "import time; time.sleep(30)"),
@@ -174,3 +172,26 @@ def test_close_stops_the_live_run_and_persists_its_final_status(tmp_path):
     assert record.finished_at
     observer.close()
     service.close()
+
+
+def test_service_instances_keep_separate_injected_catalogs():
+    from molt_ui.core.models import CommandCatalog, CommandSpec, OptionSpec
+
+    def catalog_for(environment_variable):
+        return CommandCatalog(schema_version=1, commands=(
+            CommandSpec(id="future", arguments=("future",), options=(
+                OptionSpec(name="connection", kind="string", description="Connection", default="",
+                           environment_variable=environment_variable),
+            )),
+        ))
+
+    first_catalog = catalog_for("MOLT_FIRST")
+    second_catalog = catalog_for("MOLT_SECOND")
+    first = MoltService(MoltProcess("molt"), Repo(), catalog=first_catalog, environment={})
+    second = MoltService(MoltProcess("molt"), Repo(), catalog=second_catalog, environment={})
+    assert first.commands() == first_catalog.commands
+    assert second.commands() == second_catalog.commands
+    assert first.preview("future", {"connection": "one"}).environment == {"MOLT_FIRST": "one"}
+    assert second.preview("future", {"connection": "two"}).environment == {"MOLT_SECOND": "two"}
+    first.close()
+    second.close()

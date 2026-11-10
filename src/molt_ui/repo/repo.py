@@ -9,7 +9,7 @@ import sqlite3
 from threading import Lock
 from uuid import uuid4
 
-from molt_ui.core.models import CatalogState, RunRecord
+from molt_ui.core.models import CatalogRecord, CommandCatalog, RunRecord
 
 
 class RepoError(RuntimeError):
@@ -33,6 +33,7 @@ class Repo:
         self._connection = sqlite3.connect(path, check_same_thread=False, timeout=10)
         self._connection.row_factory = sqlite3.Row
         with self._access(write=True):
+            self._connection.execute("BEGIN")
             # Keep the existing schema so previously recorded runs remain readable.
             self._connection.execute("""CREATE TABLE IF NOT EXISTS runs (
                 id TEXT PRIMARY KEY, command TEXT NOT NULL, origin TEXT NOT NULL,
@@ -40,9 +41,16 @@ class Repo:
                 started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL,
                 returncode INTEGER, summary TEXT, error TEXT
             )""")
+            columns = {
+                row["name"] for row in self._connection.execute("PRAGMA table_info(command_catalog)")
+            }
+            if "sha256" in columns:
+                # The old table only held a file fingerprint, never a catalog.
+                # Discard that obsolete marker; startup will populate the payload.
+                self._connection.execute("DROP TABLE command_catalog")
             self._connection.execute("""CREATE TABLE IF NOT EXISTS command_catalog (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
-                version TEXT NOT NULL, sha256 TEXT NOT NULL
+                version TEXT NOT NULL, payload TEXT NOT NULL, generated_at TEXT NOT NULL
             )""")
 
     @contextmanager
@@ -57,20 +65,32 @@ class Repo:
             except sqlite3.Error as exc:
                 raise RepoError(f"Could not access application metadata: {exc}") from exc
 
-    def get_catalog_state(self) -> CatalogState | None:
+    def get_catalog(self) -> CatalogRecord | None:
         with self._access():
             row = self._connection.execute(
-                "SELECT version, sha256 FROM command_catalog WHERE id = 1"
+                "SELECT version, payload, generated_at FROM command_catalog WHERE id = 1"
             ).fetchone()
-            return CatalogState.model_validate(dict(row)) if row is not None else None
+            if row is None:
+                return None
+            try:
+                return CatalogRecord(
+                    version=row["version"],
+                    catalog=CommandCatalog.model_validate_json(row["payload"]),
+                    generated_at=row["generated_at"],
+                )
+            except ValueError as exc:
+                raise RepoError("The saved command catalog is incompatible or invalid.") from exc
 
-    def save_catalog_state(self, state: CatalogState) -> None:
+    def save_catalog(self, version: str, catalog: CommandCatalog) -> CatalogRecord:
+        record = CatalogRecord(version=version, catalog=catalog, generated_at=timestamp())
         with self._access(write=True):
             self._connection.execute(
-                """INSERT INTO command_catalog (id, version, sha256) VALUES (1, ?, ?)
-                   ON CONFLICT (id) DO UPDATE SET version=excluded.version, sha256=excluded.sha256""",
-                (state.version, state.sha256),
+                """INSERT INTO command_catalog (id, version, payload, generated_at) VALUES (1, ?, ?, ?)
+                   ON CONFLICT (id) DO UPDATE SET version=excluded.version,
+                   payload=excluded.payload, generated_at=excluded.generated_at""",
+                (record.version, catalog.model_dump_json(exclude_unset=True), record.generated_at),
             )
+        return record
 
     def create_run(
         self,

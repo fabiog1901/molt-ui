@@ -1,81 +1,11 @@
-"""Resolve and validate molt commands once for preview, execution, and storage."""
+"""Build execution plans from catalog entries and explicitly selected values."""
 
 from collections.abc import Mapping
 import os
 import shlex
 
 from .catalog import command_spec
-from .models import CommandPlan
-from .options import CONNECTION_ENV, normalize_options
-
-
-def _resolve(
-    command: str,
-    options: dict[str, str | bool],
-    *,
-    help_only: bool,
-    source_kind: str | None,
-    environment: Mapping[str, str],
-):
-    definition = command_spec(command)
-    if help_only:
-        return [*definition.arguments, "--help"], {}, {}, []
-    normalized, omitted = normalize_options(
-        command, options, source_kind=source_kind, environment=environment
-    )
-    values = dict(normalized)
-    known = {option.name: option for option in definition.options}
-    if command == "fetch" and values.get("bucket-path") and values.get("local-path"):
-        raise ValueError("Choose either a staging bucket or a local staging directory.")
-    if command.startswith("convert-"):
-        values.setdefault("out", "-")
-        values.setdefault("url", "")
-        if not values.get("schema"):
-            raise ValueError("Provide a source schema file path.")
-    if command in {"fetch", "verify"}:
-        for name in ("source", "target"):
-            if not values.get(name) and not environment.get(CONNECTION_ENV[name]):
-                raise ValueError(
-                    f"Provide a {name} connection string or set {CONNECTION_ENV[name]}."
-                )
-    arguments = list(definition.arguments)
-    overrides = {}
-    for name, value in values.items():
-        option = known[name]
-        if option.kind == "bool":
-            text = str(value).lower()
-        else:
-            if "\x00" in value:
-                raise ValueError(f"--{name} must be text without null characters.")
-            if option.kind == "int":
-                try:
-                    int(value)
-                except ValueError as exc:
-                    raise ValueError(f"--{name} must be an integer.") from exc
-            text = value
-        if name in CONNECTION_ENV:
-            overrides[CONNECTION_ENV[name]] = text
-        else:
-            arguments.append(f"--{name}={text}")
-    return arguments, overrides, normalized, omitted
-
-
-def build_command(
-    command: str,
-    options: dict[str, str | bool],
-    *,
-    help_only: bool = False,
-    source_kind: str | None = None,
-    environment: Mapping[str, str] | None = None,
-) -> tuple[list[str], dict[str, str]]:
-    arguments, overrides, _, _ = _resolve(
-        command,
-        options,
-        help_only=help_only,
-        source_kind=source_kind,
-        environment=os.environ if environment is None else environment,
-    )
-    return arguments, overrides
+from .models import CommandCatalog, CommandPlan
 
 
 def build_plan(
@@ -83,29 +13,61 @@ def build_plan(
     command: str,
     options: dict[str, str | bool],
     *,
+    catalog: CommandCatalog,
     help_only: bool = False,
-    source_kind: str | None = None,
     environment: Mapping[str, str] | None = None,
 ) -> CommandPlan:
+    definition = command_spec(catalog, command)
     environment = os.environ if environment is None else environment
-    arguments, overrides, normalized, omitted = _resolve(
-        command,
-        options,
-        help_only=help_only,
-        source_kind=source_kind,
-        environment=environment,
-    )
-    if command in {"fetch", "verify"} and not help_only:
-        for name in CONNECTION_ENV.values():
-            if name not in overrides and environment.get(name):
-                overrides[name] = environment[name]
+    arguments = list(definition.arguments)
+    overrides = {}
+    values = {} if help_only else dict(options)
+    if help_only:
+        arguments.append("--help")
+    else:
+        known = {option.name: option for option in definition.options}
+        unknown = values.keys() - known.keys()
+        if unknown:
+            raise ValueError(
+                "Options missing from the command catalog: "
+                + ", ".join(f"--{name}" for name in sorted(unknown))
+                + ". Reload the command form after updating molt."
+            )
+        for name, value in values.items():
+            # This checks our argv contract. Molt validates types, accepted
+            # values, required flags, and combinations of options.
+            if not isinstance(value, (str, bool)):
+                raise ValueError(f"--{name} must be text or a boolean.")
+            text = str(value).lower() if isinstance(value, bool) else value
+            if "\x00" in text:
+                raise ValueError(f"--{name} contains a null character and cannot be passed to molt.")
+            env_name = known[name].environment_variable
+            if env_name:
+                overrides[env_name] = text
+            else:
+                arguments.append(f"--{name}={text}")
+        for option in definition.options:
+            env_name = option.environment_variable
+            if env_name and env_name not in overrides and environment.get(env_name):
+                overrides[env_name] = environment[env_name]
     argv = (executable, *arguments)
     assignments = [f"{name}={shlex.quote(value)}" for name, value in overrides.items()]
     return CommandPlan(
         command=command,
         argv=argv,
         environment=overrides,
-        options=normalized,
-        omitted=tuple(omitted),
+        options=values,
         invocation=" ".join([*assignments, shlex.join(argv)]),
     )
+
+
+def build_command(
+    command: str,
+    options: dict[str, str | bool],
+    *,
+    catalog: CommandCatalog,
+    help_only: bool = False,
+    environment: Mapping[str, str] | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    plan = build_plan("molt", command, options, catalog=catalog, help_only=help_only, environment=environment)
+    return list(plan.argv[1:]), plan.environment

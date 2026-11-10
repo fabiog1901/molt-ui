@@ -1,136 +1,123 @@
-"""Startup synchronization keeps the catalog and its SQLite version in step."""
+"""Startup loads SQLite's catalog and refreshes its payload and version together."""
 
-from hashlib import sha256
+from io import StringIO
+import sqlite3
 from unittest.mock import Mock, call
 
 import pytest
 
 from molt_ui import bootstrap, catalog_update
 from molt_ui.config import Settings
-from molt_ui.core import catalog
 from molt_ui.core.errors import MoltError
 from molt_ui.core.models import CommandResult
 from molt_ui.repo import Repo
+from molt_ui.repo.repo import RepoError
 
 
 def fake_process(version="molt version v1", default="info"):
     process = Mock()
 
     def run(arguments):
-        text = version if arguments == ["--version"] else (
-            f'Flags:\n      --logging string       Log level (default "{default}")\n'
-        )
+        if arguments == ["--version"]:
+            text = version
+        elif arguments == ["--help"]:
+            text = "Available Commands:\n  fetch   Fetch\n  verify   Verify\n  convert   Convert\n\nFlags:\n"
+        elif arguments == ["convert", "--help"]:
+            text = "Available Commands:\n  postgres   PostgreSQL\n  mysql   MySQL\n  oracle   Oracle\n\nFlags:\n"
+        else:
+            text = f'Flags:\n      --logging string       Log level (default "{default}")\n'
         return CommandResult(stdout=text, stderr="", returncode=0)
 
     process.run.side_effect = run
     return process
 
 
-@pytest.fixture
-def resource(monkeypatch, tmp_path):
-    output = tmp_path / "resources/command_catalog.json"
-    output.parent.mkdir(exist_ok=True)
-    output.write_bytes(catalog.catalog_path().read_bytes())
-    monkeypatch.setattr(catalog_update, "catalog_path", lambda: output)
-    monkeypatch.setattr(catalog, "catalog_path", lambda: output)
-    catalog.load_catalog.cache_clear()
-    yield output
-    catalog.load_catalog.cache_clear()
-
-
-def test_first_start_refreshes_and_records_version_then_only_checks_version(resource, tmp_path):
+def test_first_start_saves_catalog_and_restart_only_checks_version(tmp_path):
     database = str(tmp_path / "metadata.sqlite3")
     repo = Repo(database)
     process = fake_process()
-    assert repo.get_catalog_state() is None
-    assert catalog_update.refresh_catalog(process, repo) is True
-    assert len(process.run.call_args_list) == 6
-    state = repo.get_catalog_state()
-    assert state.version == "molt version v1"
-    assert state.sha256 == sha256(resource.read_bytes()).hexdigest()
+    assert repo.get_catalog() is None
+    generated = catalog_update.refresh_catalog(process, repo)
+    assert len(process.run.call_args_list) == 8
+    saved = repo.get_catalog()
+    assert saved.version == "molt version v1"
+    assert saved.catalog == generated
+    assert saved.generated_at
     repo.close()
-    # The comparison survives restarts, rather than being an in-memory flag.
     repo = Repo(database)
     process.run.reset_mock()
-    assert catalog_update.refresh_catalog(process, repo) is False
+    assert catalog_update.refresh_catalog(process, repo) == generated
     process.run.assert_called_once_with(["--version"])
+    assert repo.get_catalog() == saved
     repo.close()
 
 
-def test_version_change_replaces_catalog_and_invalidates_loaded_cache(resource):
+def test_version_change_replaces_saved_catalog_without_mutating_previous_instance():
     repo = Repo()
-    catalog_update.refresh_catalog(fake_process(), repo)
-    before = catalog.load_catalog()
-    assert before.commands[0].options[0].default == "info"
-    assert catalog_update.refresh_catalog(fake_process("molt version v2", "debug"), repo)
-    assert repo.get_catalog_state().version == "molt version v2"
-    assert catalog.load_catalog().commands[0].options[0].default == "debug"
+    first = catalog_update.refresh_catalog(fake_process(), repo)
+    refreshed = catalog_update.refresh_catalog(fake_process("molt version v2", "debug"), repo)
+    assert repo.get_catalog().version == "molt version v2"
+    assert refreshed.commands[0].options[0].default == "debug"
+    assert first.commands[0].options[0].default == "info"
     repo.close()
 
 
-@pytest.mark.parametrize("damage", ["missing", "invalid", "replaced"])
-def test_same_version_repairs_missing_or_changed_catalog(resource, damage):
-    repo = Repo()
+def test_invalid_saved_payload_is_regenerated_even_for_same_version(tmp_path):
+    path = str(tmp_path / "metadata.sqlite3")
+    repo = Repo(path)
     catalog_update.refresh_catalog(fake_process(), repo)
-    if damage == "missing":
-        resource.unlink()
-    elif damage == "invalid":
-        resource.write_text("broken JSON")
-    else:
-        resource.write_text(resource.read_text().replace("info", "debug"))
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE command_catalog SET payload='broken JSON'")
     process = fake_process()
-    assert catalog_update.refresh_catalog(process, repo)
-    assert len(process.run.call_args_list) == 6
-    assert catalog.load_catalog().commands[0].options[0].default == "info"
+    result = catalog_update.refresh_catalog(process, repo)
+    assert len(process.run.call_args_list) == 8
+    assert repo.get_catalog().catalog == result
     repo.close()
 
 
 @pytest.mark.parametrize("failure", ["help", "format", "write"])
-def test_failed_refresh_preserves_catalog_and_version_for_retry(resource, monkeypatch, failure):
+def test_failed_refresh_keeps_saved_catalog_and_version_then_retries(monkeypatch, failure, caplog):
     repo = Repo()
-    catalog_update.refresh_catalog(fake_process(), repo)
-    before, state = resource.read_bytes(), repo.get_catalog_state()
+    first = catalog_update.refresh_catalog(fake_process(), repo)
+    saved = repo.get_catalog()
     process = fake_process("molt version v2", "debug")
-    if failure == "help":
-        process.run.side_effect = [
-            CommandResult(stdout="molt version v2", stderr="", returncode=0),
-            CommandResult(stdout="", stderr="help failed", returncode=1),
-        ]
-    elif failure == "format":
-        process.run.side_effect = [
-            CommandResult(stdout="molt version v2", stderr="", returncode=0),
-            CommandResult(stdout="unrecognized help", stderr="", returncode=0),
-        ]
-    else:
-        def fail_replace(*args):
-            raise PermissionError("read-only resource")
-        monkeypatch.setattr(catalog_update.os, "replace", fail_replace)
-    with pytest.raises((MoltError, ValueError, OSError)):
-        catalog_update.refresh_catalog(process, repo)
-    assert resource.read_bytes() == before
-    assert repo.get_catalog_state() == state
-    assert not list(resource.parent.glob(".command-catalog-*"))
+    with monkeypatch.context() as patcher:
+        if failure in {"help", "format"}:
+            process.run.side_effect = [
+                CommandResult(stdout="molt version v2", stderr="", returncode=0),
+                CommandResult(stdout="unrecognized help", stderr="failed", returncode=1 if failure == "help" else 0),
+            ]
+        else:
+            patcher.setattr(repo, "save_catalog", Mock(side_effect=RepoError("database write failed")))
+        assert catalog_update.refresh_catalog(process, repo) == first
+    assert repo.get_catalog() == saved
+    assert "using the saved catalog" in caplog.text
+    retried = catalog_update.refresh_catalog(fake_process("molt version v2", "debug"), repo)
+    assert repo.get_catalog().version == "molt version v2"
+    assert retried.commands[0].options[0].default == "debug"
     repo.close()
 
 
 @pytest.mark.parametrize("result", [
     CommandResult(stdout="", stderr="version failed", returncode=2),
     CommandResult(stdout="\n", stderr="", returncode=0),
+    MoltError("binary unavailable"),
 ])
-def test_failed_version_check_never_changes_catalog_or_database(resource, result):
+def test_first_start_reports_missing_catalog_when_binary_is_unavailable(result):
     repo = Repo()
-    before = resource.read_bytes()
     process = Mock()
-    process.run.return_value = result
-    with pytest.raises(MoltError):
+    if isinstance(result, Exception):
+        process.run.side_effect = result
+    else:
+        process.run.return_value = result
+    with pytest.raises(MoltError, match="No usable command catalog is stored in SQLite"):
         catalog_update.refresh_catalog(process, repo)
     process.run.assert_called_once_with(["--version"])
-    assert repo.get_catalog_state() is None
-    assert resource.read_bytes() == before
+    assert repo.get_catalog() is None
     repo.close()
 
 
-def test_version_can_be_reported_on_stderr(resource):
+def test_version_can_be_reported_on_stderr():
     process = fake_process()
     run = process.run.side_effect
     process.run.side_effect = lambda args: (
@@ -138,12 +125,13 @@ def test_version_can_be_reported_on_stderr(resource):
         if args == ["--version"] else run(args)
     )
     repo = Repo()
-    assert catalog_update.refresh_catalog(process, repo)
-    assert repo.get_catalog_state().version == "molt version v1"
+    result = catalog_update.refresh_catalog(process, repo)
+    assert repo.get_catalog().version == "molt version v1"
+    assert repo.get_catalog().catalog == result
     repo.close()
 
 
-def test_startup_uses_configured_binary_and_same_database(resource, monkeypatch, tmp_path):
+def test_startup_injects_catalog_from_configured_binary_and_database(monkeypatch, tmp_path):
     process = fake_process()
     factory = Mock(return_value=process)
     monkeypatch.setattr(bootstrap, "MoltProcess", factory)
@@ -154,17 +142,42 @@ def test_startup_uses_configured_binary_and_same_database(resource, monkeypatch,
     assert service.commands()[0].options[0].default == "info"
     service.close()
     repo = Repo(settings.database)
-    assert repo.get_catalog_state().version == "molt version v1"
+    assert repo.get_catalog().version == "molt version v1"
     repo.close()
 
 
-def test_startup_warning_keeps_existing_catalog_available(resource, monkeypatch, tmp_path, caplog):
+def test_restart_uses_sqlite_catalog_when_binary_is_unavailable(command_catalog, monkeypatch, tmp_path, caplog):
+    from fastapi.testclient import TestClient
+    from molt_ui.frontends.api.app import create_app
+
+    settings = Settings(executable="/missing/molt", database=str(tmp_path / "startup.sqlite3"))
+    repo = Repo(settings.database)
+    repo.save_catalog("molt version v1", command_catalog)
+    repo.close()
+    process = Mock()
+    process.run.side_effect = MoltError("binary unavailable")
+    monkeypatch.setattr(bootstrap, "MoltProcess", Mock(return_value=process))
+    service = bootstrap.create_service(settings)
+    assert service.commands() == command_catalog.commands
+    assert "using the saved catalog" in caplog.text
+    assert "binary unavailable" in caplog.text
+    with TestClient(create_app(service)) as client:
+        assert client.get("/api/commands").status_code == 200
+
+
+def test_first_launch_without_binary_keeps_imports_and_history_available(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from molt_ui.frontends.api.app import create_app
+
     process = Mock()
     process.run.side_effect = MoltError("binary unavailable")
     monkeypatch.setattr(bootstrap, "MoltProcess", Mock(return_value=process))
     settings = Settings(executable="/missing/molt", database=str(tmp_path / "startup.sqlite3"))
     service = bootstrap.create_service(settings)
-    assert len(service.commands()) == 5
-    assert "keeping the existing catalog" in caplog.text
-    assert "binary unavailable" in caplog.text
-    service.close()
+    with TestClient(create_app(service)) as client:
+        response = client.get("/api/commands")
+        assert response.status_code == 503
+        assert "MOLT_EXECUTABLE" in response.json()["detail"]
+        assert client.get("/").status_code == 200
+        assert client.get("/api/history").json() == []
+        assert service.import_log(StringIO("sample output\n")).status == "imported"

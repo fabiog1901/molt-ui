@@ -11,9 +11,8 @@ from molt_ui.repo.repo import RepoError
 
 from .commands import build_plan
 from .errors import MoltError
-from .models import CommandPlan, CommandResult, CommandSpec, RunRecord, RunSnapshot, TableLogs
+from .models import CommandCatalog, CommandPlan, CommandResult, CommandSpec, RunRecord, RunSnapshot, TableLogs
 from .runs import RunManager
-from .options import command_definitions
 
 if TYPE_CHECKING:
     from molt_ui.molt_process import MoltProcess
@@ -26,8 +25,10 @@ class MoltService:
         process: MoltProcess,
         repo: Repo,
         *,
+        catalog: CommandCatalog | None = None,
         environment: Mapping[str, str] | None = None,
     ) -> None:
+        self._catalog = catalog
         self._process = process
         self._repo = repo
         self._runs = RunManager(process)
@@ -35,8 +36,16 @@ class MoltService:
         self._operations = Lock()
         self._closed = False
 
+    def _require_catalog(self) -> CommandCatalog:
+        if self._catalog is None:
+            raise MoltError(
+                "No command catalog is available in SQLite. "
+                "Set MOLT_EXECUTABLE to an available molt binary and restart to generate it."
+            )
+        return self._catalog
+
     def commands(self) -> tuple[CommandSpec, ...]:
-        return command_definitions(environment=self._environment)
+        return self._require_catalog().commands
 
     def preview(
         self,
@@ -44,14 +53,13 @@ class MoltService:
         options: dict[str, str | bool],
         *,
         help_only: bool = False,
-        source_kind: str | None = None,
     ) -> CommandPlan:
         return build_plan(
             self._process.executable,
             command,
             options,
+            catalog=self._require_catalog(),
             help_only=help_only,
-            source_kind=source_kind,
             environment=self._environment,
         )
 
@@ -79,13 +87,12 @@ class MoltService:
         options: dict[str, str | bool],
         *,
         help_only: bool = False,
-        source_kind: str | None = None,
     ) -> RunSnapshot:
         with self._operations:
             self._ensure_open()
             self._runs.ensure_idle()
             plan = self.preview(
-                command, options, help_only=help_only, source_kind=source_kind
+                command, options, help_only=help_only
             )
             record = self._storage(
                 self._repo.create_run,

@@ -9,34 +9,24 @@ class ImmutableModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
 
-class CatalogState(ImmutableModel):
-    version: str
-    sha256: str
-
-
-class ApplicabilityRule(ImmutableModel):
-    test: Literal["data-load", "staged", "bucket", "local", "recreate", "empty-target", "dialect"]
-    value: str | None = None
-
-
 class OptionSpec(ImmutableModel):
     name: str
     kind: Literal["string", "int", "bool"]
     description: str
     default: StrictStr | StrictBool
-    allowed_values: tuple[str, ...] = ()
     environment_variable: str | None = None
-    required: bool = False
-    from_environment: bool = False
-    default_by_source: dict[str, StrictStr | StrictBool] = Field(default_factory=dict)
-    rules: tuple[ApplicabilityRule, ...] = ()
+
+    @model_validator(mode="after")
+    def compatible_default(self):
+        if (self.kind == "bool") != isinstance(self.default, bool):
+            raise ValueError(f"Default for --{self.name} does not match its {self.kind} catalog type.")
+        return self
 
 
 class CommandSpec(ImmutableModel):
     id: str
     arguments: tuple[str, ...] = Field(min_length=1)
     options: tuple[OptionSpec, ...]
-    default_source_dialect: str = "unknown"
 
     @model_validator(mode="after")
     def unique_options(self):
@@ -48,7 +38,7 @@ class CommandSpec(ImmutableModel):
 
 class CommandCatalog(ImmutableModel):
     schema_version: Literal[1]
-    commands: tuple[CommandSpec, ...]
+    commands: tuple[CommandSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def unique_commands(self):
@@ -56,6 +46,12 @@ class CommandCatalog(ImmutableModel):
         if len(names) != len(set(names)):
             raise ValueError("Duplicate commands in catalog.")
         return self
+
+
+class CatalogRecord(ImmutableModel):
+    version: str
+    catalog: CommandCatalog
+    generated_at: str
 
 
 class LogEntry(ImmutableModel):

@@ -53,3 +53,79 @@ def test_repo_reads_the_existing_database_schema_and_preserves_exact_values(tmp_
     assert reopened.get_run("existing") == record
     assert reopened.get_run(new.id) == updated
     reopened.close()
+
+
+def test_catalog_payload_version_and_timestamp_roundtrip(command_catalog, tmp_path):
+    from datetime import datetime
+
+    path = str(tmp_path / "catalog.sqlite3")
+    repo = Repo(path)
+    assert repo.get_catalog() is None
+    saved = repo.save_catalog("molt version v1", command_catalog)
+    datetime.fromisoformat(saved.generated_at)
+    repo.close()
+    repo = Repo(path)
+    assert repo.get_catalog() == saved
+    with sqlite3.connect(path) as connection:
+        version, payload, generated_at = connection.execute(
+            "SELECT version, payload, generated_at FROM command_catalog"
+        ).fetchone()
+    assert version == saved.version
+    assert json.loads(payload) == command_catalog.model_dump(mode="json", exclude_unset=True)
+    assert generated_at == saved.generated_at
+    repo.close()
+
+
+def test_failed_catalog_write_rolls_back_payload_and_version(command_catalog, tmp_path):
+    import pytest
+    from molt_ui.repo.repo import RepoError
+
+    path = str(tmp_path / "catalog.sqlite3")
+    repo = Repo(path)
+    saved = repo.save_catalog("v1", command_catalog)
+    with sqlite3.connect(path) as connection:
+        connection.execute("""CREATE TRIGGER reject_catalog BEFORE UPDATE ON command_catalog
+            BEGIN SELECT RAISE(ABORT, 'write failed'); END""")
+    changed = command_catalog.model_copy(update={"commands": command_catalog.commands[:1]})
+    with pytest.raises(RepoError, match="write failed"):
+        repo.save_catalog("v2", changed)
+    assert repo.get_catalog() == saved
+    repo.close()
+
+
+def test_invalid_stored_catalog_is_reported(command_catalog, tmp_path):
+    import pytest
+    from molt_ui.repo.repo import RepoError
+
+    path = str(tmp_path / "catalog.sqlite3")
+    repo = Repo(path)
+    repo.save_catalog("v1", command_catalog)
+    raw = command_catalog.model_dump(mode="json")
+    raw["commands"][0]["options"][0]["kind"] = "unsupported"
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE command_catalog SET payload=?", (json.dumps(raw),))
+    with pytest.raises(RepoError, match="incompatible or invalid"):
+        repo.get_catalog()
+    repo.close()
+
+
+def test_old_catalog_fingerprint_migrates_without_losing_runs(command_catalog, tmp_path):
+    path = str(tmp_path / "legacy.sqlite3")
+    repo = Repo(path)
+    run = repo.create_run("fetch", origin="command", invocation="molt fetch")
+    repo.close()
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE command_catalog")
+        connection.execute("""CREATE TABLE command_catalog (
+            id INTEGER PRIMARY KEY CHECK (id = 1), version TEXT NOT NULL, sha256 TEXT NOT NULL
+        )""")
+        connection.execute("INSERT INTO command_catalog VALUES (1, 'v1', 'old-file-fingerprint')")
+    repo = Repo(path)
+    assert repo.get_run(run.id) == run
+    assert repo.get_catalog() is None
+    saved = repo.save_catalog("v1", command_catalog)
+    assert repo.get_catalog() == saved
+    with sqlite3.connect(path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(command_catalog)")}
+    assert columns == {"id", "version", "payload", "generated_at"}
+    repo.close()

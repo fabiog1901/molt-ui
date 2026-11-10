@@ -22,6 +22,8 @@ interface that suits your workflow.
 You'll need **Python 3.14+**, **Poetry**, and the **`molt` executable**.
 Place the executable at `molt/molt` in this checkout or make it available on your
 `PATH`. To use another location, set `MOLT_EXECUTABLE` to its path.
+On first launch, the app reads Molt’s commands and saves their catalog in SQLite;
+it refreshes the catalog when the Molt version changes.
 
 From the project directory, install the app:
 

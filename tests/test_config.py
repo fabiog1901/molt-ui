@@ -6,11 +6,11 @@ from molt_ui.core.service import MoltService
 from molt_ui.repo import Repo
 
 
-def test_help_is_a_named_operation_and_executable_is_configurable(
+def test_help_is_a_named_operation_and_executable_is_configurable(command_catalog,
     monkeypatch, tmp_path
 ):
     process = Mock()
-    service = MoltService(process, Repo())
+    service = MoltService(process, Repo(), catalog=command_catalog)
     service.help()
     process.run.assert_called_once_with(["--help"])
     service.close()

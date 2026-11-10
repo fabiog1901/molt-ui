@@ -83,7 +83,7 @@ class MoltApp(App):
                 yield Label("Command")
                 yield Select(
                     [(item.label, item.id) for item in self.catalog],
-                    value="fetch",
+                    value="fetch" if any(item.id == "fetch" for item in self.catalog) else self.catalog[0].id,
                     allow_blank=False,
                     id="command",
                 )

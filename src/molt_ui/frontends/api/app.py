@@ -49,7 +49,6 @@ def create_app(service: MoltService | None = None) -> FastAPI:
                 body.command,
                 body.options,
                 help_only=body.help_only,
-                source_kind=body.source_kind,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -61,7 +60,6 @@ def create_app(service: MoltService | None = None) -> FastAPI:
                 body.command,
                 body.options,
                 help_only=body.help_only,
-                source_kind=body.source_kind,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
