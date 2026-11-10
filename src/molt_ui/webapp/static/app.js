@@ -2,7 +2,7 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('cliApp', () => ({
     commands: [], command: 'fetch', values: {}, advanced: false,
     job: null, events: [], cursor: 0, error: '', busy: false,
-    timer: null, polling: false, truncated: false,
+    timer: null, polling: false, truncated: false, outputCleared: false,
     aggregation: {totals: {}, tables: []}, tableFilter: '', tablePage: 1,
     expandedTable: '', tableDetail: null, detailError: '', detailLoading: false,
     rawOutput: false, followOutput: true,
@@ -54,6 +54,16 @@ document.addEventListener('alpine:init', () => {
       this.resizingOutput = false;
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
       this.resizePointer = null;
+    },
+    clearOutput() {
+      this.events = [];
+      this.truncated = false;
+      this.outputCleared = true;
+    },
+    logLevel(event) { return String(event.data?.level || event.stream || 'info').toLowerCase(); },
+    logEmoji(event) {
+      return ({trace: '🔬', debug: '🐛', info: 'ℹ️', warn: '⚠️', warning: '⚠️',
+        error: '❌', fatal: '💥', panic: '🚨', stdout: '📄', stderr: '❌'})[this.logLevel(event)] || '🔹';
     },
     scrollOutputToEnd() {
       if (!this.$refs?.output) return;
@@ -248,7 +258,7 @@ document.addEventListener('alpine:init', () => {
     },
     resetRun(snapshot) {
       clearTimeout(this.timer);
-      this.events = []; this.cursor = 0; this.truncated = false;
+      this.events = []; this.cursor = 0; this.truncated = false; this.outputCleared = false;
       this.expandedTable = ''; this.tableDetail = null; this.tableFilter = ''; this.tablePage = 1;
       this.applySnapshot(snapshot);
       this.selectedRecord = null;
@@ -311,6 +321,7 @@ document.addEventListener('alpine:init', () => {
       this.aggregation = snapshot.aggregation || {totals: {}, tables: []};
       this.truncated ||= snapshot.truncated || this.events.length + snapshot.events.length > 2000;
       this.events = [...this.events, ...snapshot.events].slice(-2000);
+      if (snapshot.events.length) this.outputCleared = false;
       this.cursor = snapshot.cursor;
       if (follow) this.$nextTick(() => { panel.scrollTop = panel.scrollHeight; });
     },
@@ -364,9 +375,12 @@ document.addEventListener('alpine:init', () => {
       } catch (error) { this.error = error.message; }
     },
     formatEvent(event) {
-      if (!event.data) return `[${event.stream}] ${event.text}`;
-      const { time = '', level = event.stream, message = '', ...fields } = event.data;
-      return `${time} [${level}] ${message}${Object.keys(fields).length ? ' ' + JSON.stringify(fields) : ''}`;
+      if (!event.data) return event.text;
+      const { time = '', level, message = '', ...fields } = event.data;
+      const details = Object.entries(fields).map(([key, value]) =>
+        `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`).join(', ');
+      const timestamp = typeof time === 'string' ? time.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?Z$/, '$1 $2') : time;
+      return [timestamp, message, details].filter(part => part !== '' && part != null).join(' ');
     },
   }));
 });

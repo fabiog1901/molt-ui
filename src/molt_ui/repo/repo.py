@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import sqlite3
@@ -10,6 +11,9 @@ from threading import Lock
 from uuid import uuid4
 
 from molt_ui.core.models import CatalogRecord, CommandCatalog, RunRecord
+
+
+logger = logging.getLogger(__name__)
 
 
 class RepoError(RuntimeError):
@@ -28,12 +32,20 @@ class Repo:
             descriptor = os.open(target, os.O_CREAT | os.O_RDWR, 0o600)
             os.close(descriptor)
             path = str(target)
+        logger.info("Opening SQLite database at %s", path)
         self._lock = Lock()
         self._closed = False
         self._connection = sqlite3.connect(path, check_same_thread=False, timeout=10)
         self._connection.row_factory = sqlite3.Row
         with self._access(write=True):
             self._connection.execute("BEGIN")
+            tables = {
+                row["name"] for row in self._connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            initializing = not ({"runs", "command_catalog"} & tables)
+            changes = [f"created {name}" for name in ("runs", "command_catalog") if name not in tables]
             # Keep the existing schema so previously recorded runs remain readable.
             self._connection.execute("""CREATE TABLE IF NOT EXISTS runs (
                 id TEXT PRIMARY KEY, command TEXT NOT NULL, origin TEXT NOT NULL,
@@ -47,11 +59,19 @@ class Repo:
             if "sha256" in columns:
                 # The old table only held a file fingerprint, never a catalog.
                 # Discard that obsolete marker; startup will populate the payload.
+                changes.append("migrated command_catalog from file fingerprint to stored payload")
                 self._connection.execute("DROP TABLE command_catalog")
             self._connection.execute("""CREATE TABLE IF NOT EXISTS command_catalog (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 version TEXT NOT NULL, payload TEXT NOT NULL, generated_at TEXT NOT NULL
             )""")
+        # Report success only after the schema transaction has committed.
+        if initializing:
+            logger.info("Initialized SQLite database at %s (%s)", path, "; ".join(changes))
+        else:
+            if changes:
+                logger.info("Updated SQLite schema at %s (%s)", path, "; ".join(changes))
+            logger.info("Loaded existing SQLite database at %s", path)
 
     @contextmanager
     def _access(self, *, write: bool = False):

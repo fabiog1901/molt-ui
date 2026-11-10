@@ -129,3 +129,43 @@ def test_old_catalog_fingerprint_migrates_without_losing_runs(command_catalog, t
         columns = {row[1] for row in connection.execute("PRAGMA table_info(command_catalog)")}
     assert columns == {"id", "version", "payload", "generated_at"}
     repo.close()
+
+
+def test_database_lifecycle_logs_distinguish_initialization_and_existing_schema(tmp_path, caplog):
+    import logging
+
+    path = str(tmp_path / "events.sqlite3")
+    with caplog.at_level(logging.INFO, logger="molt_ui.repo.repo"):
+        repo = Repo(path)
+        repo.close()
+        assert f"Opening SQLite database at {path}" in caplog.text
+        assert f"Initialized SQLite database at {path}" in caplog.text
+        assert "created runs; created command_catalog" in caplog.text
+        caplog.clear()
+        repo = Repo(path)
+        repo.close()
+        assert f"Loaded existing SQLite database at {path}" in caplog.text
+        assert "Initialized" not in caplog.text
+        assert "Updated SQLite schema" not in caplog.text
+
+
+def test_schema_upgrade_is_logged_and_preserves_run_values(tmp_path, caplog):
+    import logging
+
+    path = str(tmp_path / "upgrade.sqlite3")
+    repo = Repo(path)
+    record = repo.create_run("fetch", origin="command", invocation="sensitive-command-value")
+    repo.close()
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE command_catalog")
+        connection.execute("""CREATE TABLE command_catalog (
+            id INTEGER PRIMARY KEY, version TEXT NOT NULL, sha256 TEXT NOT NULL
+        )""")
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="molt_ui.repo.repo"):
+        repo = Repo(path)
+        assert repo.get_run(record.id) == record
+        repo.close()
+    assert f"Updated SQLite schema at {path}" in caplog.text
+    assert "migrated command_catalog from file fingerprint to stored payload" in caplog.text
+    assert "sensitive-command-value" not in caplog.text

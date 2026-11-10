@@ -39,7 +39,7 @@ test('starts a typed command, polls incremental logs, and handles completion', a
   assert.equal(calls[1].path, '/api/jobs/run1?after=1');
   assert.equal(app.events.length, 2);
   assert.equal(app.running, false);
-  assert.match(app.formatEvent(second), /\[warn\] warning.*example/);
+  assert.equal(app.formatEvent(second), 'warning table=example');
 });
 
 test('restores the running job after refresh', async () => {
@@ -390,4 +390,64 @@ test('small screens begin with a closed history drawer and selecting a record cl
   app.historyOpen = true;
   app.reviewRecord({ id: 'saved' });
   assert.equal(app.historyOpen, false);
+});
+
+test('clearing output preserves the live cursor, aggregates, and command history', async () => {
+  const next = { ...snapshot([{ sequence: 102, stream: 'stdout', text: 'next line' }]), aggregation: { totals: { exported: 200 }, tables: [] } };
+  const { app, calls } = createApp([{ body: next }]);
+  const current = { ...snapshot([{ sequence: 101, stream: 'stdout', text: 'old line' }]), aggregation: next.aggregation, record: { id: 'saved' } };
+  app.applySnapshot(current);
+  app.history = [current.record];
+  app.truncated = true;
+  app.clearOutput();
+  assert.equal(app.events.length, 0);
+  assert.equal(app.cursor, 101);
+  assert.equal(app.totals.exported, 200);
+  assert.equal(app.history[0].id, 'saved');
+  assert.equal(app.job.record.id, 'saved');
+  assert.equal(app.truncated, false);
+  assert.equal(app.outputCleared, true);
+  await app.poll();
+  assert.equal(calls[0].path, '/api/jobs/run1?after=101');
+  assert.equal(app.events.length, 1);
+  assert.equal(app.events[0].sequence, 102);
+  assert.equal(app.outputCleared, false);
+});
+
+test('log emoji cover severities, aliases, and unstructured output', () => {
+  const { app } = createApp([]);
+  for (const [level, emoji] of Object.entries({ trace: '🔬', debug: '🐛', info: 'ℹ️', warn: '⚠️', warning: '⚠️', error: '❌', fatal: '💥', panic: '🚨' })) {
+    assert.equal(app.logEmoji({ data: { level } }), emoji);
+    assert.equal(app.logEmoji({ data: { level: level.toUpperCase() } }), emoji);
+  }
+  assert.equal(app.logEmoji({ stream: 'stdout' }), '📄');
+  assert.equal(app.logEmoji({ stream: 'stderr' }), '❌');
+  assert.equal(app.logEmoji({ data: { level: 'custom' } }), '🔹');
+});
+
+test('formatted logs replace severity labels with the existing emoji and readable key=value fields', () => {
+  const { app } = createApp([]);
+  const text = '{"level":"info","table":"public.address","type":"summary","num_rows":603,"export_duration_ms":1000,"export_duration":"000h 00m 01s"}';
+  const event = { stream: 'stdout', text, data: JSON.parse(text) };
+  assert.equal(app.formatEvent(event), 'table=public.address, type=summary, num_rows=603, export_duration_ms=1000, export_duration=000h 00m 01s');
+  assert.equal(app.logEmoji(event), 'ℹ️');
+  assert.equal(event.text, text);
+  assert.equal(JSON.stringify(event.data), text);
+  assert.equal(app.formatEvent({ stream: 'stdout', data: { time: '2026-11-10T12:00:00Z', level: 'warn', message: 'Slow table', rows: 0 } }), '2026-11-10 12:00:00 Slow table rows=0');
+});
+
+test('formatted fields preserve complex values and plain output without textual stream labels', () => {
+  const { app } = createApp([]);
+  assert.equal(app.formatEvent({ data: { level: 'debug', enabled: false, cursor: null, options: { batch: 4 }, tables: ['public.actor'] } }), 'enabled=false, cursor=null, options={"batch":4}, tables=["public.actor"]');
+  assert.equal(app.formatEvent({ stream: 'stderr', text: 'plain error' }), 'plain error');
+  assert.equal(app.formatEvent({ data: { level: 'info', message: 'Ready' } }), 'Ready');
+});
+
+test('formatted UTC log timestamps use a space and second precision without changing the time', () => {
+  const { app } = createApp([]);
+  for (const time of ['2026-09-22T16:16:07Z', '2026-09-22T16:16:07.123Z']) {
+    const event = { data: { time, level: 'info', message: 'Ready' } };
+    assert.equal(app.formatEvent(event), '2026-09-22 16:16:07 Ready');
+    assert.equal(event.data.time, time);
+  }
 });

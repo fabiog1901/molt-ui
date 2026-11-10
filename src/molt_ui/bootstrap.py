@@ -7,6 +7,7 @@ from .catalog_update import refresh_catalog
 from .config import Settings
 from .core.errors import MoltError
 from .core.service import MoltService
+from .logging_config import configure_logging
 from .molt_process import MoltProcess
 from .repo import Repo
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_service(settings: Settings | None = None) -> MoltService:
+    configure_logging()
     environment = dict(os.environ)
     settings = (
         settings if settings is not None else Settings.from_environment(environment)

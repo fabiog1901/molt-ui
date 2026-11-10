@@ -104,7 +104,7 @@
                           <p class="error" role="alert" x-show="detailError" x-text="detailError"></p>
                           <button type="button" class="secondary" x-show="detailError" @click="loadTableLogs">Retry loading logs</button>
                           <template x-for="event in (tableDetail?.events || [])" :key="event.sequence">
-                            <pre :class="event.data?.level || event.stream" x-text="formatEvent(event)"></pre>
+                            <pre :class="event.data?.level || event.stream" x-text="logEmoji(event) + ' ' + formatEvent(event)"></pre>
                           </template>
                         </div>
                       </template>
@@ -131,13 +131,18 @@
           <span class="output-count hint" x-text="number(events.length) + ' lines'"></span>
           <label class="check-label" x-show="!outputCollapsed"><input type="checkbox" x-model="rawOutput"> Raw JSON</label>
           <label class="check-label" x-show="!outputCollapsed"><input type="checkbox" x-model="followOutput" @change="if (followOutput) scrollOutputToEnd()"> Follow</label>
+          <button type="button" class="secondary clear-output" id="clear-output" @click="clearOutput" :disabled="!events.length" title="Clear displayed log lines" aria-label="Clear displayed log lines">Clear</button>
           <button type="button" class="secondary icon-button" id="toggle-output" @click="toggleOutput" :aria-expanded="!outputCollapsed" aria-controls="output-log" :aria-label="outputCollapsed ? 'Restore output pane' : 'Minimize output pane'" :title="outputCollapsed ? 'Restore output pane' : 'Minimize output pane'" x-text="outputCollapsed ? '▴' : '▾'"></button>
         </div>
         <p class="output-notice hint" x-show="!outputCollapsed && truncated" x-cloak>Earlier output was discarded. Showing the latest log entries.</p>
-        <div class="log-output" id="output-log" x-ref="output" x-show="!outputCollapsed" tabindex="0" aria-label="Command output" @scroll.passive="outputScrolled()">
-          <p class="hint empty-output" x-show="!events.length">Command output will appear here. Configure a command or review a saved log.</p>
+        <div class="log-output" id="output-log" x-ref="output" x-show="!outputCollapsed" tabindex="0" aria-label="Command output" :style="{'--line-number-width': Math.max(4, String(cursor).length) + 'ch'}" @scroll.passive="outputScrolled()">
+          <p class="hint empty-output" x-show="!events.length" x-text="outputCleared ? 'Output cleared. New log lines will appear here.' : 'Command output will appear here. Configure a command or review a saved log.'"></p>
             <template x-for="event in events" :key="event.sequence">
-              <pre :class="event.data?.level || event.stream" x-text="rawOutput ? event.text : formatEvent(event)"></pre>
+              <div class="log-line" :class="logLevel(event)">
+                <span class="log-line-number" aria-hidden="true" x-text="event.sequence"></span>
+                <span class="log-level-icon" role="img" :aria-label="logLevel(event)" :title="logLevel(event)" x-text="logEmoji(event)"></span>
+                <pre x-text="rawOutput ? event.text : formatEvent(event)"></pre>
+              </div>
             </template>
         </div>
       </section>
