@@ -1,3 +1,5 @@
+![splash](resources/media/splash.png)
+
 # Molt UI
 
 One Python core wrapping the Go `molt` CLI, with a Textual TUI and a FastAPI-served
@@ -198,6 +200,10 @@ Raw logs and per-table detail buffers remain in memory and are not persisted.
 - `frontends/tui/`: Textual controls and log presentation.
 - `frontends/api/`: FastAPI command catalog, start/status/stop endpoints, and static assets.
 - `webapp/`: packaged build-free HTML, CSS, and Alpine.js.
+- `resources/scripts/`: repository maintenance scripts.
+- `resources/media/`: source artwork. The webapp serves a packaged copy of `logo.png`
+  from `webapp/static/media/` for its header and favicon; update that copy when
+  replacing the source logo.
 
 Both frontend adapters consume the same validated command-field models. Shared
 process output and aggregation types live in `core/models.py`; the core does not
@@ -223,7 +229,7 @@ scaffold. Alpine.js is pinned and loaded from a CDN.
 After upgrading the binary, regenerate and review its option catalog:
 
 ```sh
-poetry run python scripts/update_command_catalog.py
+poetry run python resources/scripts/update_command_catalog.py
 ```
 
 ## Verify
