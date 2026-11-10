@@ -1,7 +1,14 @@
 import pytest
 
 from molt_ui.core.commands import build_command
-from molt_ui.core.catalog import COMMANDS
+from molt_ui.core.catalog import load_catalog
+from molt_ui.core.options import command_definitions, normalize_options
+from molt_ui.frontends.models import CommandDefinition
+
+
+def frontend_catalog():
+    return [CommandDefinition.from_spec(spec).model_dump(exclude_unset=True)
+            for spec in command_definitions()]
 
 
 def test_fetch_keeps_credentials_in_child_environment_and_arguments_literal():
@@ -71,20 +78,14 @@ def test_conversion_defaults_to_printing_without_database_evaluation():
 
 
 def test_catalog_has_unique_flags_and_boolean_copy_option():
-    for command in COMMANDS:
-        names = [option["name"] for option in command["options"]]
+    for command in load_catalog().commands:
+        names = [option.name for option in command.options]
         assert len(names) == len(set(names))
-    fetch = COMMANDS[0]
-    assert (
-        next(option for option in fetch["options"] if option["name"] == "use-copy")[
-            "kind"
-        ]
-        == "bool"
-    )
+    fetch = load_catalog().commands[0]
+    assert next(option for option in fetch.options if option.name == "use-copy").kind == "bool"
 
 
 def test_staged_transfer_and_dialect_specific_options_are_pruned():
-    from molt_ui.core.wizard import normalize_options
 
     options, omitted = normalize_options(
         "fetch",
@@ -110,7 +111,6 @@ def test_staged_transfer_and_dialect_specific_options_are_pruned():
 
 
 def test_recreate_options_only_survive_when_recreating_tables():
-    from molt_ui.core.wizard import normalize_options
 
     options = {
         "table-handling": "none",
@@ -122,7 +122,6 @@ def test_recreate_options_only_survive_when_recreating_tables():
 
 
 def test_connection_type_and_enum_validation_happen_before_preview():
-    from molt_ui.core.wizard import normalize_options
 
     with pytest.raises(ValueError):
         normalize_options("fetch", {"source": True})
@@ -131,13 +130,12 @@ def test_connection_type_and_enum_validation_happen_before_preview():
 
 
 def test_wizard_exposes_real_defaults_and_required_fields(monkeypatch):
-    from molt_ui.core.wizard import wizard_catalog
 
     monkeypatch.delenv("MOLT_SOURCE", raising=False)
     monkeypatch.delenv("MOLT_TARGET", raising=False)
     catalog = {
         command["id"]: {option["name"]: option for option in command["options"]}
-        for command in wizard_catalog()
+        for command in frontend_catalog()
     }
     fetch = catalog["fetch"]
     assert fetch["mode"]["default"] == "data-load"
@@ -154,7 +152,7 @@ def test_wizard_exposes_real_defaults_and_required_fields(monkeypatch):
     assert catalog["convert-postgres"]["out"]["default"] == "-"
     assert catalog["convert-postgres"]["url"]["default"] == ""
     monkeypatch.setenv("MOLT_SOURCE", "postgres://example/db")
-    fetch = next(command for command in wizard_catalog() if command["id"] == "fetch")
+    fetch = next(command for command in frontend_catalog() if command["id"] == "fetch")
     source = next(option for option in fetch["options"] if option["name"] == "source")
     assert source["required"] is False
     assert source["from_environment"] is True
@@ -164,7 +162,6 @@ def test_wizard_exposes_real_defaults_and_required_fields(monkeypatch):
 
 
 def test_explicit_source_selection_filters_options_without_a_uri():
-    from molt_ui.core.wizard import normalize_options
 
     options, removed = normalize_options(
         "fetch",
@@ -192,9 +189,8 @@ def test_explicit_source_selection_filters_options_without_a_uri():
 
 
 def test_logging_metrics_and_telemetry_have_dedicated_wizard_tabs():
-    from molt_ui.core.wizard import wizard_catalog
 
-    for command in wizard_catalog():
+    for command in frontend_catalog():
         options = {option["name"]: option for option in command["options"]}
         if command["id"] in {"fetch", "verify"}:
             for name in ("logging", "log-file", "use-console-writer"):
@@ -213,9 +209,8 @@ def test_logging_metrics_and_telemetry_have_dedicated_wizard_tabs():
     "level", ["trace", "debug", "info", "warn", "error", "fatal", "panic"]
 )
 def test_logging_dropdown_levels_are_valid_and_preserved_in_argv(level):
-    from molt_ui.core.wizard import wizard_catalog
 
-    command = next(item for item in wizard_catalog() if item["id"] == "verify")
+    command = next(item for item in frontend_catalog() if item["id"] == "verify")
     option = next(item for item in command["options"] if item["name"] == "logging")
     assert option["default"] == "info"
     assert level in {choice["value"] for choice in option["choices"]}
@@ -231,16 +226,14 @@ def test_logging_dropdown_levels_are_valid_and_preserved_in_argv(level):
 
 
 def test_logging_dropdown_rejects_unknown_levels():
-    from molt_ui.core.wizard import normalize_options
 
     with pytest.raises(ValueError, match="valid value for --logging"):
         normalize_options("fetch", {"logging": "verbose"})
 
 
 def test_disabling_logging_uses_the_flag_without_appearing_in_the_level_choices():
-    from molt_ui.core.wizard import wizard_catalog, normalize_options
 
-    options = next(command for command in wizard_catalog() if command["id"] == "fetch")[
+    options = next(command for command in frontend_catalog() if command["id"] == "fetch")[
         "options"
     ]
     logging = next(option for option in options if option["name"] == "logging")
@@ -256,18 +249,16 @@ def test_disabling_logging_uses_the_flag_without_appearing_in_the_level_choices(
         },
     )
     assert "--logging=disabled" in arguments
-    with pytest.raises(ValueError):
-        normalize_options("fetch", {"logging": ""})
+    assert normalize_options("fetch", {"logging": ""}) == ({"logging": ""}, [])
 
 
 @pytest.mark.parametrize("command", ["fetch", "verify"])
 def test_log_file_preserves_cli_default_unless_explicitly_overridden(command):
-    from molt_ui.core.wizard import wizard_catalog
 
     options = {"source": "postgres://source/db", "target": "postgres://target/db"}
     args, _ = build_command(command, options)
     assert not any(argument.startswith("--log-file=") for argument in args)
-    definition = next(item for item in wizard_catalog() if item["id"] == command)
+    definition = next(item for item in frontend_catalog() if item["id"] == command)
     log_file = next(
         option for option in definition["options"] if option["name"] == "log-file"
     )

@@ -54,7 +54,7 @@ class MoltApp(App):
         super().__init__()
         self.service = service if service is not None else create_service()
         self.catalog = [
-            CommandDefinition.model_validate(item) for item in self.service.commands()
+            CommandDefinition.from_spec(item) for item in self.service.commands()
         ]
         self.run: RunSnapshot | None = None
         self.cursor = 0

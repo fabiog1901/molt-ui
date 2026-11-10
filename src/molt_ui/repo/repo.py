@@ -1,4 +1,4 @@
-"""SQLite persistence for command records; no execution or frontend policy."""
+"""SQLite persistence for application metadata; no execution or frontend policy."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -9,7 +9,7 @@ import sqlite3
 from threading import Lock
 from uuid import uuid4
 
-from molt_ui.core.models import RunRecord
+from molt_ui.core.models import CatalogState, RunRecord
 
 
 class RepoError(RuntimeError):
@@ -40,6 +40,10 @@ class Repo:
                 started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL,
                 returncode INTEGER, summary TEXT, error TEXT
             )""")
+            self._connection.execute("""CREATE TABLE IF NOT EXISTS command_catalog (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                version TEXT NOT NULL, sha256 TEXT NOT NULL
+            )""")
 
     @contextmanager
     def _access(self, *, write: bool = False):
@@ -51,7 +55,22 @@ class Repo:
                 else:
                     yield
             except sqlite3.Error as exc:
-                raise RepoError(f"Could not access run metadata: {exc}") from exc
+                raise RepoError(f"Could not access application metadata: {exc}") from exc
+
+    def get_catalog_state(self) -> CatalogState | None:
+        with self._access():
+            row = self._connection.execute(
+                "SELECT version, sha256 FROM command_catalog WHERE id = 1"
+            ).fetchone()
+            return CatalogState.model_validate(dict(row)) if row is not None else None
+
+    def save_catalog_state(self, state: CatalogState) -> None:
+        with self._access(write=True):
+            self._connection.execute(
+                """INSERT INTO command_catalog (id, version, sha256) VALUES (1, ?, ?)
+                   ON CONFLICT (id) DO UPDATE SET version=excluded.version, sha256=excluded.sha256""",
+                (state.version, state.sha256),
+            )
 
     def create_run(
         self,

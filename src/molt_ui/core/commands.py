@@ -4,22 +4,9 @@ from collections.abc import Mapping
 import os
 import shlex
 
-from .catalog import COMMANDS
+from .catalog import command_spec
 from .models import CommandPlan
-from .wizard import normalize_options
-
-CONNECTION_ENV = {
-    "source": "MOLT_SOURCE",
-    "target": "MOLT_TARGET",
-    "source-cdb": "MOLT_SOURCE_CDB",
-}
-
-
-def command_definition(command: str) -> dict:
-    for definition in COMMANDS:
-        if definition["id"] == command:
-            return definition
-    raise ValueError("Unknown molt command.")
+from .options import CONNECTION_ENV, normalize_options
 
 
 def _resolve(
@@ -30,14 +17,14 @@ def _resolve(
     source_kind: str | None,
     environment: Mapping[str, str],
 ):
-    definition = command_definition(command)
+    definition = command_spec(command)
     if help_only:
-        return [*definition["arguments"], "--help"], {}, {}, []
+        return [*definition.arguments, "--help"], {}, {}, []
     normalized, omitted = normalize_options(
         command, options, source_kind=source_kind, environment=environment
     )
     values = dict(normalized)
-    known = {option["name"]: option for option in definition["options"]}
+    known = {option.name: option for option in definition.options}
     if command == "fetch" and values.get("bucket-path") and values.get("local-path"):
         raise ValueError("Choose either a staging bucket or a local staging directory.")
     if command.startswith("convert-"):
@@ -51,16 +38,16 @@ def _resolve(
                 raise ValueError(
                     f"Provide a {name} connection string or set {CONNECTION_ENV[name]}."
                 )
-    arguments = list(definition["arguments"])
+    arguments = list(definition.arguments)
     overrides = {}
     for name, value in values.items():
         option = known[name]
-        if option["kind"] == "bool":
+        if option.kind == "bool":
             text = str(value).lower()
         else:
             if "\x00" in value:
                 raise ValueError(f"--{name} must be text without null characters.")
-            if option["kind"] == "int":
+            if option.kind == "int":
                 try:
                     int(value)
                 except ValueError as exc:

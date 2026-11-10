@@ -2,11 +2,60 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, model_validator
 
 
 class ImmutableModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+
+class CatalogState(ImmutableModel):
+    version: str
+    sha256: str
+
+
+class ApplicabilityRule(ImmutableModel):
+    test: Literal["data-load", "staged", "bucket", "local", "recreate", "empty-target", "dialect"]
+    value: str | None = None
+
+
+class OptionSpec(ImmutableModel):
+    name: str
+    kind: Literal["string", "int", "bool"]
+    description: str
+    default: StrictStr | StrictBool
+    allowed_values: tuple[str, ...] = ()
+    environment_variable: str | None = None
+    required: bool = False
+    from_environment: bool = False
+    default_by_source: dict[str, StrictStr | StrictBool] = Field(default_factory=dict)
+    rules: tuple[ApplicabilityRule, ...] = ()
+
+
+class CommandSpec(ImmutableModel):
+    id: str
+    arguments: tuple[str, ...] = Field(min_length=1)
+    options: tuple[OptionSpec, ...]
+    default_source_dialect: str = "unknown"
+
+    @model_validator(mode="after")
+    def unique_options(self):
+        names = [option.name for option in self.options]
+        if len(names) != len(set(names)):
+            raise ValueError(f"Duplicate options in command {self.id}.")
+        return self
+
+
+class CommandCatalog(ImmutableModel):
+    schema_version: Literal[1]
+    commands: tuple[CommandSpec, ...]
+
+    @model_validator(mode="after")
+    def unique_commands(self):
+        names = [command.id for command in self.commands]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate commands in catalog.")
+        return self
 
 
 class LogEntry(ImmutableModel):

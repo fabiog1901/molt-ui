@@ -20,7 +20,10 @@ molt-web = "molt_ui.frontends.api.app:main"
 
 [tool.poetry]
 packages = [{include = "molt_ui", from = "src"}]
-include = [{path = "src/molt_ui/webapp/**/*", format = ["sdist", "wheel"]}]
+include = [
+    {path = "src/molt_ui/webapp/**/*", format = ["sdist", "wheel"]},
+    {path = "resources/command_catalog.json", format = ["sdist", "wheel"]},
+]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8,<10"

@@ -2,15 +2,19 @@ import pytest
 from pydantic import ValidationError
 
 from molt_ui.core.models import CommandResult, LogEntry, OutputEvent, TableProgress
-from molt_ui.core.wizard import wizard_catalog
+from molt_ui.core.options import command_definitions
 from molt_ui.frontends.models import CommandDefinition, StartCommand
 
 
-def test_frontend_catalog_models_preserve_existing_command_metadata():
-    for definition in wizard_catalog():
-        model = CommandDefinition.model_validate(definition)
-        assert model.model_dump(exclude_unset=True) == definition
-        assert model.options[0].name == definition["options"][0]["name"]
+def test_frontend_mapping_adds_display_metadata_without_changing_core_models():
+    for specification in command_definitions(environment={}):
+        before = specification.model_dump_json()
+        model = CommandDefinition.from_spec(specification)
+        assert CommandDefinition.model_validate_json(model.model_dump_json()) == model
+        assert {option.name for option in model.options} == {option.name for option in specification.options}
+        assert model.options[0].stage == "connections"
+        assert "stage" not in specification.options[0].model_dump()
+        assert specification.model_dump_json() == before
 
 
 def test_request_model_rejects_unknown_fields_and_untyped_options():

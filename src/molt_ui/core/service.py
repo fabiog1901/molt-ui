@@ -11,9 +11,9 @@ from molt_ui.repo.repo import RepoError
 
 from .commands import build_plan
 from .errors import MoltError
-from .models import CommandPlan, CommandResult, RunRecord, RunSnapshot, TableLogs
+from .models import CommandPlan, CommandResult, CommandSpec, RunRecord, RunSnapshot, TableLogs
 from .runs import RunManager
-from .wizard import wizard_catalog
+from .options import command_definitions
 
 if TYPE_CHECKING:
     from molt_ui.molt_process import MoltProcess
@@ -35,8 +35,8 @@ class MoltService:
         self._operations = Lock()
         self._closed = False
 
-    def commands(self) -> list[dict]:
-        return wizard_catalog(environment=self._environment)
+    def commands(self) -> tuple[CommandSpec, ...]:
+        return command_definitions(environment=self._environment)
 
     def preview(
         self,

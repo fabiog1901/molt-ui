@@ -40,7 +40,7 @@ def create_app(service: MoltService | None = None) -> FastAPI:
 
     @app.get("/api/commands", response_model_exclude_unset=True)
     def commands() -> list[CommandDefinition]:
-        return [CommandDefinition.model_validate(item) for item in service.commands()]
+        return [CommandDefinition.from_spec(item) for item in service.commands()]
 
     @app.post("/api/jobs", status_code=201)
     def start_command(body: StartCommand) -> RunSnapshot:
