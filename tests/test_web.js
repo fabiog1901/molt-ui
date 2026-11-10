@@ -3,11 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function createApp(responses) {
+function createApp(responses, viewport = {}) {
   let factory;
   const calls = [];
   let scheduled = 0;
   const context = {
+    innerWidth: 1200, innerHeight: 800, ...viewport,
     document: { addEventListener: (_, callback) => callback() },
     Alpine: { data: (_, callback) => { factory = callback; } },
     setTimeout: () => { scheduled++; return scheduled; }, clearTimeout: () => {},
@@ -42,7 +43,7 @@ test('starts a typed command, polls incremental logs, and handles completion', a
 });
 
 test('restores the running job after refresh', async () => {
-  const { app, scheduled } = createApp([{ body: catalog }, { body: snapshot() }]);
+  const { app, scheduled } = createApp([{ body: catalog }, { body: snapshot() }, { body: [] }]);
   await app.init();
   assert.equal(app.job.id, 'run1');
   assert.equal(app.running, true);
@@ -288,15 +289,16 @@ test('disable logging preserves the selected level and restores it when unchecke
 });
 
 test('catalog incompatibility is visible and leaves command configuration unavailable', async () => {
-  const { app, calls } = createApp([{ status: 503, body: { detail: 'Cannot display fetch: catalog changed.' } }]);
+  const { app, calls } = createApp([{ status: 503, body: { detail: 'Cannot display fetch: catalog changed.' } }, { body: null }, { body: [] }]);
   await app.init();
   assert.equal(app.error, 'Cannot display fetch: catalog changed.');
   assert.equal(app.commands.length, 0);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 3);
+  assert.equal(app.historyLoaded, true);
 });
 
 test('a discovered command can become the initial selection when fetch is absent', async () => {
-  const { app } = createApp([{ body: [{ id: 'future', options: [] }] }, { body: null }]);
+  const { app } = createApp([{ body: [{ id: 'future', options: [] }] }, { body: null }, { body: [] }]);
   await app.init();
   assert.equal(app.command, 'future');
   assert.equal(app.definition.id, 'future');
@@ -315,4 +317,77 @@ test('clearing a nonempty CLI default preserves an explicit empty argument', () 
   assert.deepEqual(JSON.parse(JSON.stringify(app.options())), { url: '' });
   app.setOption(source, '');
   assert.deepEqual(JSON.parse(JSON.stringify(app.options())), { url: '' });
+});
+
+test('output collapse keeps its previous height and resizing stays within the viewport', () => {
+  const { app } = createApp([]);
+  app.setOutputHeight(320);
+  app.toggleOutput();
+  assert.equal(app.outputCollapsed, true);
+  assert.equal(app.outputHeight, 320);
+  app.toggleOutput();
+  assert.equal(app.outputCollapsed, false);
+  assert.equal(app.outputHeight, 320);
+  app.resizeOutputBy(10000);
+  assert.equal(app.outputHeight, 480);
+  app.resizeOutputBy(-10000);
+  assert.equal(app.outputHeight, 80);
+  const { app: small } = createApp([], { innerHeight: 400 });
+  small.setOutputHeight(400);
+  assert.equal(small.outputHeight, 140);
+});
+
+test('output splitter captures the pointer and ignores other pointers', () => {
+  const { app } = createApp([]);
+  const captures = [];
+  const currentTarget = {
+    setPointerCapture: id => captures.push(id),
+    hasPointerCapture: id => captures.includes(id),
+    releasePointerCapture: id => captures.splice(captures.indexOf(id), 1),
+  };
+  app.beginOutputResize({ button: 0, clientY: 600, pointerId: 1, currentTarget });
+  app.moveOutputResize({ clientY: 500, pointerId: 2 });
+  assert.equal(app.outputHeight, 240);
+  app.moveOutputResize({ clientY: 500, pointerId: 1 });
+  assert.equal(app.outputHeight, 340);
+  app.endOutputResize({ pointerId: 1, currentTarget });
+  assert.equal(app.resizingOutput, false);
+  assert.equal(captures.length, 0);
+});
+
+test('history loads at startup and remains independent of the current output', async () => {
+  const record = { id: 'older', command: 'verify', status: 'succeeded' };
+  const current = { ...snapshot(), record: { id: 'current' } };
+  const { app, calls } = createApp([{ body: catalog }, { body: current }, { body: [record] }]);
+  await app.init();
+  assert.equal(calls[2].path, '/api/history');
+  assert.equal(app.historyLoaded, true);
+  app.reviewRecord(record);
+  assert.equal(app.reviewingHistory, true);
+  assert.equal(app.job.id, current.id);
+  app.selectedRecord = app.job.record;
+  assert.equal(app.reviewingHistory, false);
+});
+
+test('manual output scrolling pauses follow and resuming follow reaches the latest line', () => {
+  const { app } = createApp([]);
+  const output = { scrollTop: 0, scrollHeight: 1000, clientHeight: 200 };
+  app.$refs = { output };
+  app.$nextTick = callback => callback();
+  app.outputScrolled();
+  assert.equal(app.followOutput, false);
+  app.applySnapshot(snapshot([{ sequence: 1, text: 'new' }]));
+  assert.equal(output.scrollTop, 0);
+  app.followOutput = true;
+  app.scrollOutputToEnd();
+  assert.equal(output.scrollTop, 1000);
+});
+
+test('small screens begin with a closed history drawer and selecting a record closes it', async () => {
+  const { app } = createApp([{ body: catalog }, { body: null }, { body: [] }], { innerWidth: 390, innerHeight: 650 });
+  await app.init();
+  assert.equal(app.historyOpen, false);
+  app.historyOpen = true;
+  app.reviewRecord({ id: 'saved' });
+  assert.equal(app.historyOpen, false);
 });

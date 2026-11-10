@@ -5,13 +5,65 @@ document.addEventListener('alpine:init', () => {
     timer: null, polling: false, truncated: false,
     aggregation: {totals: {}, tables: []}, tableFilter: '', tablePage: 1,
     expandedTable: '', tableDetail: null, detailError: '', detailLoading: false,
-    rawOutput: false,
+    rawOutput: false, followOutput: true,
+    historyOpen: true, historyLoaded: false,
+    outputHeight: 240, outputCollapsed: false, resizingOutput: false,
+    resizeStartY: 0, resizeStartHeight: 240, resizePointer: null,
     steps: ['Operation', 'Connections', 'Common options', 'Advanced', 'Logging', 'Metrics', 'Review'],
     stages: ['operation', 'connections', 'common', 'advanced', 'logging', 'metrics', 'review'],
     step: 0, preview: null, wizardError: '', advancedSearch: '', prunedOptions: [],
     history: [], historyBusy: false, historyError: '', selectedRecord: null, copyMessage: '',
     sourceKind: '',
     previousLogLevel: 'info',
+
+    get reviewingHistory() { return Boolean(this.selectedRecord && this.selectedRecord.id !== this.job?.record?.id); },
+    reviewRecord(record) {
+      this.selectedRecord = record; this.copyMessage = '';
+      if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
+    },
+    outputMaxHeight() {
+      const height = globalThis.innerHeight || 800;
+      return Math.max(80, Math.min(Math.floor(height * .6), height - 260));
+    },
+    fitOutput() { this.outputHeight = Math.min(this.outputMaxHeight(), Math.max(80, this.outputHeight)); },
+    setOutputHeight(height) {
+      this.outputCollapsed = false;
+      this.outputHeight = height;
+      this.fitOutput();
+      if (this.followOutput) this.scrollOutputToEnd();
+    },
+    resizeOutputBy(delta) { this.setOutputHeight(this.outputHeight + delta); },
+    toggleOutput() {
+      this.outputCollapsed = !this.outputCollapsed;
+      if (!this.outputCollapsed) { this.fitOutput(); if (this.followOutput) this.scrollOutputToEnd(); }
+    },
+    beginOutputResize(event) {
+      if (event.button !== undefined && event.button !== 0) return;
+      if (this.outputCollapsed) this.setOutputHeight(80);
+      this.resizingOutput = true;
+      this.resizeStartY = event.clientY; this.resizeStartHeight = this.outputHeight;
+      this.resizePointer = event.pointerId;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    moveOutputResize(event) {
+      if (!this.resizingOutput || event.pointerId !== this.resizePointer) return;
+      this.setOutputHeight(this.resizeStartHeight + this.resizeStartY - event.clientY);
+    },
+    endOutputResize(event) {
+      if (event.pointerId !== this.resizePointer) return;
+      this.resizingOutput = false;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      this.resizePointer = null;
+    },
+    scrollOutputToEnd() {
+      if (!this.$refs?.output) return;
+      this.$nextTick(() => { const panel = this.$refs?.output; if (panel) panel.scrollTop = panel.scrollHeight; });
+    },
+    outputScrolled() {
+      if (this.outputCollapsed) return;
+      const panel = this.$refs?.output;
+      if (panel) this.followOutput = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80;
+    },
 
     get definition() { return this.commands.find(item => item.id === this.command); },
     get running() { return this.job?.status === 'running'; },
@@ -124,7 +176,11 @@ document.addEventListener('alpine:init', () => {
     },
     async refreshHistory() {
       this.historyBusy = true; this.historyError = '';
-      try { this.history = await this.request('/api/history'); }
+      try {
+        this.history = await this.request('/api/history');
+        this.historyLoaded = true;
+        if (this.selectedRecord) this.selectedRecord = this.history.find(record => record.id === this.selectedRecord.id) || this.selectedRecord;
+      }
       catch (error) { this.historyError = error.message; }
       finally { this.historyBusy = false; }
     },
@@ -165,18 +221,22 @@ document.addEventListener('alpine:init', () => {
     },
 
     async init() {
+      if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
+      if ((globalThis.innerWidth || 1200) <= 600) this.outputHeight = 160;
+      this.fitOutput();
       try {
         this.commands = await this.request('/api/commands');
         if (!this.definition) this.command = this.commands[0]?.id || '';
+      } catch (error) { this.error = error.message; }
+      try {
         const latest = await this.request('/api/jobs');
         if (latest) {
-          if (this.$refs?.configuration) this.$refs.configuration.open = false;
           if (this.commands.some(item => item.id === latest.command)) this.command = latest.command;
           this.applySnapshot(latest);
           if (this.running) this.schedulePoll();
         }
-      }
-      catch (error) { this.error = error.message; }
+      } catch (error) { if (!this.error) this.error = error.message; }
+      await this.refreshHistory();
     },
     destroy() { clearTimeout(this.timer); },
     changeCommand() {
@@ -191,8 +251,8 @@ document.addEventListener('alpine:init', () => {
       this.events = []; this.cursor = 0; this.truncated = false;
       this.expandedTable = ''; this.tableDetail = null; this.tableFilter = ''; this.tablePage = 1;
       this.applySnapshot(snapshot);
-      if (this.$refs?.configuration) this.$refs.configuration.open = false;
-      if (this.$refs?.history?.open) this.refreshHistory();
+      this.selectedRecord = null;
+      if (this.historyLoaded) this.refreshHistory();
     },
     async importFile(file) {
       if (!file || this.running || this.busy) return;
@@ -201,6 +261,7 @@ document.addEventListener('alpine:init', () => {
         this.resetRun(await this.request('/api/log-imports', {
           method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file,
         }));
+        this.$refs?.importer?.close();
       } catch (error) { this.error = error.message; }
       finally { this.busy = false; }
     },
@@ -214,6 +275,7 @@ document.addEventListener('alpine:init', () => {
           method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: await response.blob(),
         });
         this.resetRun(snapshot);
+        this.$refs?.importer?.close();
       } catch (error) { this.error = error.message; }
       finally { this.busy = false; }
     },
@@ -244,7 +306,7 @@ document.addEventListener('alpine:init', () => {
     },
     applySnapshot(snapshot) {
       const panel = this.$refs?.output;
-      const follow = panel && panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80;
+      const follow = panel && this.followOutput && !this.outputCollapsed;
       this.job = snapshot;
       this.aggregation = snapshot.aggregation || {totals: {}, tables: []};
       this.truncated ||= snapshot.truncated || this.events.length + snapshot.events.length > 2000;
@@ -276,7 +338,7 @@ document.addEventListener('alpine:init', () => {
         const snapshot = await this.request(`/api/jobs/${jobId}?after=${this.cursor}`);
         if (this.job?.id !== jobId) return;
         this.applySnapshot(snapshot);
-        if (!this.running && this.$refs?.history?.open) await this.refreshHistory();
+        if (!this.running && this.historyLoaded) await this.refreshHistory();
         const selected = this.aggregation.tables.find(table => table.name === this.expandedTable);
         if (selected && (!this.tableDetail || this.tableDetail.total !== selected.log_lines)) await this.loadTableLogs();
         this.error = snapshot.history_error || '';

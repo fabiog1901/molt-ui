@@ -10,61 +10,144 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   </head>
   <body>
-    <main x-data="cliApp">
-      <header class="app-header">
-        <img class="app-logo" src="/static/media/logo.png" alt="Molt mascot" width="144" height="144" decoding="async">
-        <div>
-          <p class="eyebrow">Molt UI</p>
-          <h1>Move your data.</h1>
-          <p>Configure a command and follow its progress.</p>
+    <main class="app-shell" x-data="cliApp" :class="{'resizing-output': resizingOutput}" @resize.window="fitOutput()">
+      <nav class="app-navbar" aria-label="Application navigation">
+        <a class="app-brand" href="/" aria-label="Molt UI home"><img class="app-logo" src="/static/media/logo.png" alt="" width="40" height="40"><span>Molt UI</span></a>
+        <div class="navbar-actions">
+          <button type="button" class="secondary history-toggle" @click="historyOpen = !historyOpen" :aria-expanded="historyOpen" aria-controls="history-sidebar">☰ <span>History</span></button>
+          <label for="nav-command" class="sr-only">Command</label>
+          <select id="nav-command" x-model="command" x-effect="const selected = command; if (commands.length) $nextTick(() => { $el.value = selected })" @change="changeCommand" :disabled="running || busy || !commands.length" aria-label="Select command">
+            <template x-for="item in commands" :key="item.id"><option :value="item.id" x-text="item.label"></option></template>
+          </select>
+          <button type="button" id="configure-command" @click="openWizard" :disabled="running || busy || !commands.length">Configure<span class="desktop-label"> command</span></button>
+          <button type="button" class="secondary" id="review-logs" @click="$refs.importer.showModal()" :disabled="running || busy">Review logs</button>
         </div>
-      </header>
-      <p class="error" role="alert" x-show="error" x-text="error" x-cloak></p>
-      <section class="log-import" aria-labelledby="import-heading">
-        <h2 id="import-heading">Preview saved logs</h2>
-        <p class="hint">Import a JSONL or text log (up to 256 MiB) to inspect tables and totals. No molt command runs. The sample is a condensed version of the supplied fetch log.</p>
-        <div class="import-actions">
-          <label for="log-file">Log file</label>
-          <input id="log-file" type="file" accept=".jsonl,.ndjson,.json,.log,.txt,text/plain" :disabled="running || busy" @change="importFile($event.target.files[0]); $event.target.value = ''">
-          <button type="button" class="secondary" :disabled="running || busy" @click="loadSample">Load sample log</button>
+        <div class="navbar-status">
+          <span class="run-indicator" :class="{active: running}" aria-hidden="true"></span>
+          <span role="status" x-text="busy ? 'Working…' : (job ? job.status + (job.returncode !== null ? ' · exit ' + job.returncode : '') : 'Ready')"></span>
+          <button type="button" class="stop" @click="stop" :disabled="!running">Stop</button>
         </div>
-        <p class="hint" role="status" x-show="busy">Loading…</p>
-      </section>
-      <div class="workspace">
-        <section class="command-launcher">
-          <div><h2>Run a command</h2><p class="hint">Configure the operation in a guided wizard, then review the complete invocation.</p></div>
-          <button type="button" @click="openWizard" :disabled="running || busy || !commands.length">Configure command</button>
-        </section>
-        <section class="command-record" x-show="job?.record?.invocation" x-cloak>
-          <div class="console-heading"><h2>Command record</h2><button type="button" class="secondary" @click="copyCommand(job.record.invocation)">Copy command</button></div>
-          <p class="hint" x-text="job?.record ? 'Started ' + new Date(job.record.started_at).toLocaleString() + ' · exact values saved locally' : ''"></p>
-          <pre class="invocation" x-text="job?.record?.invocation"></pre>
-          <p class="hint" role="status" x-text="copyMessage"></p>
-        </section>
-        <details class="run-history" x-ref="history" @toggle="if ($event.target.open) refreshHistory()">
-          <summary>Saved run history</summary>
-          <p class="hint">Command metadata and exact parameter values are stored locally in SQLite. Log history remains bounded in memory.</p>
-          <p class="error" role="alert" x-show="historyError" x-text="historyError"></p>
-          <button type="button" class="secondary" @click="refreshHistory" :disabled="historyBusy" x-text="historyBusy ? 'Loading…' : 'Refresh history'"></button>
-          <div class="history-list">
+      </nav>
+      <div class="app-error error-banner" role="alert" x-show="error" x-cloak>
+        <span x-text="error"></span><button type="button" class="secondary" @click="error = ''" aria-label="Dismiss message">✕</button>
+      </div>
+      <div class="app-workspace" :class="{'history-hidden': !historyOpen}">
+        <button type="button" class="history-scrim" x-show="historyOpen" @click="historyOpen = false" aria-label="Close history" x-cloak></button>
+        <aside class="history-sidebar" id="history-sidebar" aria-labelledby="history-heading" x-show="historyOpen">
+          <div class="sidebar-heading"><h2 id="history-heading">History</h2><button type="button" class="secondary icon-button" @click="refreshHistory" :disabled="historyBusy" aria-label="Refresh history" title="Refresh history">↻</button></div>
+          <button type="button" class="current-session secondary" @click="selectedRecord = null" :aria-pressed="!reviewingHistory"><span class="run-indicator" :class="{active: running}" aria-hidden="true"></span> Current session</button>
+          <p class="history-error error" role="alert" x-show="historyError" x-text="historyError"></p>
+          <div class="history-list" aria-label="Saved command records">
+            <p class="hint empty-history" x-show="!history.length" x-text="historyBusy ? 'Loading history…' : 'Your command records will appear here.'"></p>
             <template x-for="record in history" :key="record.id">
-              <button type="button" class="history-entry secondary" @click="selectedRecord = record; copyMessage = ''" :aria-pressed="selectedRecord?.id === record.id">
-                <span x-text="record.origin === 'import' ? 'Imported log' : record.command"></span>
+              <button type="button" class="history-entry secondary" @click="reviewRecord(record)" :aria-pressed="selectedRecord?.id === record.id">
+                <span class="history-entry-title" x-text="record.origin === 'import' ? 'Imported log' : record.command"></span>
+                <span class="status-badge" :class="record.status" x-text="record.status"></span>
                 <small x-text="new Date(record.started_at).toLocaleString()"></small>
-                <span class="status-badge" x-text="record.status"></span>
               </button>
             </template>
           </div>
-          <p class="hint" x-show="!history.length && !historyBusy">No saved records yet.</p>
-          <div class="history-detail" x-show="selectedRecord" x-cloak>
-            <p x-text="selectedRecord ? selectedRecord.status + (selectedRecord.returncode !== null ? ' · exit ' + selectedRecord.returncode : '') : ''"></p>
+          <p class="sidebar-note hint">Commands and summaries are saved locally.</p>
+        </aside>
+        <div class="main-content">
+          <section class="history-review" x-show="reviewingHistory" x-cloak aria-labelledby="record-heading">
+            <div class="section-heading"><div><p class="eyebrow">Saved record</p><h1 id="record-heading" x-text="selectedRecord?.origin === 'import' ? 'Imported log' : selectedRecord?.command"></h1></div><button type="button" class="secondary" @click="selectedRecord = null">Current session</button></div>
+            <p><span class="status-badge" :class="selectedRecord?.status" x-text="selectedRecord?.status"></span> <span class="hint" x-text="selectedRecord?.returncode !== null && selectedRecord?.returncode !== undefined ? 'Exit ' + selectedRecord.returncode : ''"></span></p>
+            <p class="hint" x-text="selectedRecord ? 'Started ' + new Date(selectedRecord.started_at).toLocaleString() : ''"></p>
+            <p class="hint" x-text="selectedRecord?.finished_at ? 'Finished ' + new Date(selectedRecord.finished_at).toLocaleString() : ''"></p>
             <pre class="invocation" x-text="selectedRecord?.invocation || 'Imported log — no command was executed.'"></pre>
-            <p class="error" x-show="selectedRecord?.error" x-text="selectedRecord?.error"></p>
-            <p class="hint" x-text="selectedRecord?.finished_at ? 'Finished ' + new Date(selectedRecord.finished_at).toLocaleString() : 'No final timestamp recorded.'"></p>
-            <button type="button" class="secondary" x-show="selectedRecord?.invocation" @click="copyCommand(selectedRecord.invocation)">Copy saved command</button>
+            <button type="button" class="secondary copy-record" x-show="selectedRecord?.invocation" @click="copyCommand(selectedRecord.invocation)">Copy command</button>
             <p class="hint" role="status" x-text="copyMessage"></p>
+            <p class="error" x-show="selectedRecord?.error" x-text="selectedRecord?.error"></p>
+            <div class="saved-totals" x-show="selectedRecord?.summary"><template x-for="key in ['tables', 'exported', 'imported', 'errors', 'warnings']" :key="key"><div class="metric"><span x-text="key"></span><strong x-text="number(selectedRecord?.summary?.[key] ?? 0)"></strong></div></template></div>
+            <p class="hint">To inspect this record’s tables and full output, open its saved log file.</p>
+            <button type="button" class="secondary copy-record" @click="$refs.importer.showModal()" :disabled="running || busy">Review a log file</button>
+          </section>
+          <section class="session-workspace" x-show="!reviewingHistory" aria-labelledby="tables-heading">
+            <div class="section-heading"><div><p class="eyebrow" x-text="job?.status === 'imported' ? 'Log review' : 'Current session'"></p><h1 id="tables-heading" x-text="job ? job.command + ' · table progress' : 'Table progress'"></h1></div><span class="hint" x-show="job?.status === 'imported'">Imported log</span></div>
+            <details class="command-record" x-show="job?.record?.invocation" x-cloak>
+              <summary>Command record <span class="hint">View exact invocation</span></summary>
+              <div class="command-record-body"><pre class="invocation" x-text="job?.record?.invocation"></pre><button type="button" class="secondary" @click="copyCommand(job.record.invocation)">Copy</button><span class="hint" role="status" x-text="copyMessage"></span></div>
+            </details>
+          <div class="metrics" aria-label="Run totals">
+            <div class="metric"><span>Tables</span><strong x-text="number(totals.tables ?? 0)"></strong></div>
+            <div class="metric"><span>Errors</span><strong :class="totals.errors ? 'error' : 'healthy'" x-text="number(totals.errors ?? 0)"></strong></div>
+            <div class="metric"><span>Warnings</span><strong :class="totals.warnings ? 'warn' : ''" x-text="number(totals.warnings ?? 0)"></strong></div>
+            <div class="metric"><span>Skipped</span><strong x-text="number(totals.skipped ?? 0)"></strong></div>
+            <div class="metric"><span>Exported total</span><strong x-text="number(totals.exported ?? 0)"></strong></div>
+            <div class="metric"><span>Imported total</span><strong x-text="number(totals.imported ?? 0)"></strong></div>
           </div>
-        </details>
+          <div class="table-toolbar">
+            <label class="sr-only" for="table-filter">Filter table name</label>
+            <input id="table-filter" type="search" placeholder="Filter table name…" x-model.debounce.150ms="tableFilter" @input="tablePage = 1">
+            <span class="hint" x-text="filteredTables.length + ' of ' + (totals.tables ?? 0) + ' tables'"></span>
+          </div>
+          <div class="table-scroll" tabindex="0" aria-label="Per-table progress">
+            <table class="progress-table">
+              <thead><tr><th aria-label="Expand logs"></th><th scope="col">Table</th><th scope="col">Exported</th><th scope="col">Imported</th><th scope="col">Errors</th><th scope="col">Warnings</th><th scope="col">Log lines</th><th scope="col">Status</th></tr></thead>
+              <template x-for="(table, index) in visibleTables" :key="table.name">
+                <tbody>
+                  <tr>
+                    <td><button type="button" class="expand-table" @click="toggleTable(table.name)" :aria-expanded="expandedTable === table.name" :aria-label="'Logs for ' + table.name" :aria-controls="'table-details-' + index" x-text="expandedTable === table.name ? '▾' : '▸'"></button></td>
+                    <th scope="row"><span x-text="table.name"></span><small x-show="table.target && table.target !== table.name" x-text="'→ ' + table.target"></small></th>
+                    <td x-text="number(table.exported)"></td><td x-text="number(table.imported)"></td>
+                    <td :class="table.errors ? 'error' : ''" x-text="number(table.errors)"></td>
+                    <td :class="table.warnings ? 'warn' : ''" x-text="number(table.warnings)"></td>
+                    <td x-text="number(table.log_lines)"></td>
+                    <td><span class="status-badge" :class="table.status" :title="'Phase: ' + table.phase" x-text="table.status"></span></td>
+                  </tr>
+                  <tr x-show="expandedTable === table.name" :id="'table-details-' + index" x-cloak>
+                    <td colspan="8" class="table-details">
+                      <template x-if="expandedTable === table.name">
+                        <div>
+                          <p class="hint" x-text="tableDetail ? 'Showing ' + tableDetail.events.length + ' recent log entries of ' + number(tableDetail.total) + (tableDetail.truncated ? ' · earlier entries discarded' : '') : 'Loading table logs…'"></p>
+                          <p class="error" role="alert" x-show="detailError" x-text="detailError"></p>
+                          <button type="button" class="secondary" x-show="detailError" @click="loadTableLogs">Retry loading logs</button>
+                          <template x-for="event in (tableDetail?.events || [])" :key="event.sequence">
+                            <pre :class="event.data?.level || event.stream" x-text="formatEvent(event)"></pre>
+                          </template>
+                        </div>
+                      </template>
+                    </td>
+                  </tr>
+                </tbody>
+              </template>
+            </table>
+            <p class="hint empty-tables" x-show="!visibleTables.length" x-text="tableFilter ? 'No matching tables.' : 'Tables will appear when molt identifies them.'"></p>
+          </div>
+          <div class="pagination" x-show="tablePages > 1" x-cloak>
+            <button type="button" class="secondary" :disabled="tablePage <= 1" @click="tablePage--">Previous</button>
+            <span x-text="'Page ' + Math.min(tablePage, tablePages) + ' of ' + tablePages"></span>
+            <button type="button" class="secondary" :disabled="tablePage >= tablePages" @click="tablePage++">Next</button>
+          </div>
+            <div class="table-footnote hint"><span x-text="number(totals.unassigned ?? 0) + ' global log entries · ' + number(totals.unassigned_warnings ?? 0) + ' global warnings'"></span><span>Totals include all received logs.</span></div>
+          </section>
+        </div>
+      </div>
+      <section class="output-pane" id="output-pane" :class="{collapsed: outputCollapsed}" :style="{height: (outputCollapsed ? 44 : outputHeight) + 'px'}" aria-labelledby="output-heading">
+        <div class="output-resizer" role="separator" aria-label="Resize output pane" aria-orientation="horizontal" aria-controls="output-pane" tabindex="0" :aria-valuenow="outputCollapsed ? 44 : outputHeight" aria-valuemin="44" :aria-valuemax="outputMaxHeight()" @pointerdown.prevent="beginOutputResize($event)" @pointermove="moveOutputResize($event)" @pointerup="endOutputResize($event)" @pointercancel="endOutputResize($event)" @lostpointercapture="resizingOutput = false" @keydown.arrow-up.prevent="resizeOutputBy(32)" @keydown.arrow-down.prevent="resizeOutputBy(-32)" @keydown.home.prevent="setOutputHeight(80)" @keydown.end.prevent="setOutputHeight(outputMaxHeight())" @dblclick="setOutputHeight(240)"></div>
+        <div class="output-toolbar">
+          <h2 id="output-heading">Output</h2><span class="output-context hint" x-text="job ? job.command + ' · ' + job.status : 'No command running'"></span>
+          <span class="output-count hint" x-text="number(events.length) + ' lines'"></span>
+          <label class="check-label" x-show="!outputCollapsed"><input type="checkbox" x-model="rawOutput"> Raw JSON</label>
+          <label class="check-label" x-show="!outputCollapsed"><input type="checkbox" x-model="followOutput" @change="if (followOutput) scrollOutputToEnd()"> Follow</label>
+          <button type="button" class="secondary icon-button" id="toggle-output" @click="toggleOutput" :aria-expanded="!outputCollapsed" aria-controls="output-log" :aria-label="outputCollapsed ? 'Restore output pane' : 'Minimize output pane'" :title="outputCollapsed ? 'Restore output pane' : 'Minimize output pane'" x-text="outputCollapsed ? '▴' : '▾'"></button>
+        </div>
+        <p class="output-notice hint" x-show="!outputCollapsed && truncated" x-cloak>Earlier output was discarded. Showing the latest log entries.</p>
+        <div class="log-output" id="output-log" x-ref="output" x-show="!outputCollapsed" tabindex="0" aria-label="Command output" @scroll.passive="outputScrolled()">
+          <p class="hint empty-output" x-show="!events.length">Command output will appear here. Configure a command or review a saved log.</p>
+            <template x-for="event in events" :key="event.sequence">
+              <pre :class="event.data?.level || event.stream" x-text="rawOutput ? event.text : formatEvent(event)"></pre>
+            </template>
+        </div>
+      </section>
+      <dialog class="import-dialog" x-ref="importer" aria-labelledby="import-heading" @cancel.prevent="if (!busy) $refs.importer.close()">
+        <div class="dialog-heading"><div><p class="eyebrow">Log review</p><h2 id="import-heading">Open a saved log</h2></div><button type="button" class="secondary icon-button" @click="$refs.importer.close()" :disabled="busy" aria-label="Close log review">✕</button></div>
+        <p class="hint">Inspect tables, totals, and output from a JSONL or text log. Uploads can be up to 256 MiB.</p>
+        <p class="error" role="alert" x-show="error" x-text="error"></p>
+        <label for="log-file">Choose a log file</label><input id="log-file" type="file" accept=".jsonl,.ndjson,.json,.log,.txt,text/plain" :disabled="running || busy" @change="importFile($event.target.files[0]); $event.target.value = ''">
+        <div class="import-actions"><span class="hint" x-text="busy ? 'Loading log…' : 'Or explore the included sample.'"></span><button type="button" class="secondary" id="load-sample" @click="loadSample" :disabled="running || busy">Load sample log</button></div>
+      </dialog>
         <dialog class="wizard" x-ref="wizard" aria-labelledby="wizard-title" @cancel.prevent="closeWizard">
           <div class="wizard-header"><div><p class="eyebrow">New run</p><h2 id="wizard-title">Configure molt</h2></div><button type="button" class="secondary" @click="closeWizard" :disabled="busy" aria-label="Close wizard">✕</button></div>
           <div class="wizard-banner" x-show="wizardError || busy || prunedOptions.length" x-cloak :class="wizardError ? 'error-banner' : 'info-banner'" :role="wizardError ? 'alert' : 'status'" aria-live="polite" aria-atomic="true">
@@ -80,12 +163,12 @@
               <fieldset :disabled="busy">
                 <div x-show="step === 0">
                   <label for="command">Operation</label>
-                  <select id="command" x-model="command" @change="changeCommand">
+                  <select id="command" x-model="command" x-effect="const selected = command; if (commands.length) $nextTick(() => { $el.value = selected })" @change="changeCommand">
                     <template x-for="item in commands" :key="item.id"><option :value="item.id" x-text="item.label"></option></template>
                   </select>
                   <p class="hint">Choose the operation and transfer method first. Later steps show options that apply to your selections.</p>
                 </div>
-                <p class="hint" x-show="step === 1 && command.startsWith('convert-')">Conversion prints SQL and skips database evaluation unless you provide an evaluation URL. File paths refer to the machine running molt.</p>
+                <p class="hint" x-show="step === 1 && command.startsWith('convert-')">Defaults come from your Molt version. File paths refer to the machine running Molt. Clear the evaluation URL to skip database evaluation.</p>
                 <div x-show="currentStage === 'advanced'"><label for="advanced-search">Find an advanced option</label><input id="advanced-search" type="search" x-model="advancedSearch" placeholder="Filter by flag or description…"></div>
                 <fieldset class="source-picker" x-show="command === 'fetch' && step === 1">
                   <legend>Source database <span class="required-mark" aria-hidden="true">*</span><span class="sr-only"> (required)</span></legend>
@@ -139,76 +222,6 @@
             </footer>
           </form>
         </dialog>
-        <section class="console" aria-labelledby="output-heading">
-          <div class="console-heading">
-            <h2 id="output-heading">Live output</h2>
-            <button type="button" class="stop" @click="stop" :disabled="!running">Stop</button>
-          </div>
-          <p role="status" x-text="job ? job.status + (job.returncode !== null ? ' · exit ' + job.returncode : '') : 'Ready'"></p>
-          <p class="hint" x-show="job?.status === 'imported'" x-cloak>Log preview — no command was executed. A saved log does not establish the migration’s exit status.</p>
-          <div class="metrics" aria-label="Run totals">
-            <div class="metric"><span>Tables</span><strong x-text="number(totals.tables ?? 0)"></strong></div>
-            <div class="metric"><span>Errors</span><strong :class="totals.errors ? 'error' : 'healthy'" x-text="number(totals.errors ?? 0)"></strong></div>
-            <div class="metric"><span>Warnings</span><strong :class="totals.warnings ? 'warn' : ''" x-text="number(totals.warnings ?? 0)"></strong></div>
-            <div class="metric"><span>Skipped</span><strong x-text="number(totals.skipped ?? 0)"></strong></div>
-            <div class="metric"><span>Exported total</span><strong x-text="number(totals.exported ?? 0)"></strong></div>
-            <div class="metric"><span>Imported total</span><strong x-text="number(totals.imported ?? 0)"></strong></div>
-          </div>
-          <div class="table-toolbar">
-            <label class="sr-only" for="table-filter">Filter table name</label>
-            <input id="table-filter" type="search" placeholder="Filter table name…" x-model.debounce.150ms="tableFilter" @input="tablePage = 1">
-            <span class="hint" x-text="filteredTables.length + ' of ' + (totals.tables ?? 0) + ' tables'"></span>
-          </div>
-          <div class="table-scroll" tabindex="0" aria-label="Per-table progress">
-            <table class="progress-table">
-              <thead><tr><th aria-label="Expand logs"></th><th scope="col">Table</th><th scope="col">Exported</th><th scope="col">Imported</th><th scope="col">Errors</th><th scope="col">Warnings</th><th scope="col">Log lines</th><th scope="col">Status</th></tr></thead>
-              <template x-for="(table, index) in visibleTables" :key="table.name">
-                <tbody>
-                  <tr>
-                    <td><button type="button" class="expand-table" @click="toggleTable(table.name)" :aria-expanded="expandedTable === table.name" :aria-label="'Logs for ' + table.name" :aria-controls="'table-details-' + index" x-text="expandedTable === table.name ? '▾' : '▸'"></button></td>
-                    <th scope="row"><span x-text="table.name"></span><small x-show="table.target && table.target !== table.name" x-text="'→ ' + table.target"></small></th>
-                    <td x-text="number(table.exported)"></td><td x-text="number(table.imported)"></td>
-                    <td :class="table.errors ? 'error' : ''" x-text="number(table.errors)"></td>
-                    <td :class="table.warnings ? 'warn' : ''" x-text="number(table.warnings)"></td>
-                    <td x-text="number(table.log_lines)"></td>
-                    <td><span class="status-badge" :class="table.status" :title="'Phase: ' + table.phase" x-text="table.status"></span></td>
-                  </tr>
-                  <tr x-show="expandedTable === table.name" :id="'table-details-' + index" x-cloak>
-                    <td colspan="8" class="table-details">
-                      <template x-if="expandedTable === table.name">
-                        <div>
-                          <p class="hint" x-text="tableDetail ? 'Showing ' + tableDetail.events.length + ' recent log entries of ' + number(tableDetail.total) + (tableDetail.truncated ? ' · earlier entries discarded' : '') : 'Loading table logs…'"></p>
-                          <p class="error" role="alert" x-show="detailError" x-text="detailError"></p>
-                          <button type="button" class="secondary" x-show="detailError" @click="loadTableLogs">Retry loading logs</button>
-                          <template x-for="event in (tableDetail?.events || [])" :key="event.sequence">
-                            <pre :class="event.data?.level || event.stream" x-text="formatEvent(event)"></pre>
-                          </template>
-                        </div>
-                      </template>
-                    </td>
-                  </tr>
-                </tbody>
-              </template>
-            </table>
-            <p class="hint empty-tables" x-show="!visibleTables.length" x-text="tableFilter ? 'No matching tables.' : 'Tables will appear when molt identifies them.'"></p>
-          </div>
-          <div class="pagination" x-show="tablePages > 1" x-cloak>
-            <button type="button" class="secondary" :disabled="tablePage <= 1" @click="tablePage--">Previous</button>
-            <span x-text="'Page ' + Math.min(tablePage, tablePages) + ' of ' + tablePages"></span>
-            <button type="button" class="secondary" :disabled="tablePage >= tablePages" @click="tablePage++">Next</button>
-          </div>
-          <p class="hint">Totals cover all received logs, including discarded console history. Row counts are only shown when reported by molt.</p>
-          <p class="hint" x-text="number(totals.unassigned ?? 0) + ' log entries without an identifiable table · ' + number(totals.unassigned_warnings ?? 0) + ' global warnings · ' + number(totals.unassigned_errors ?? 0) + ' global errors'"></p>
-          <div class="console-heading raw-heading"><h3>Scrolling output</h3><label class="check-label"><input type="checkbox" x-model="rawOutput"> Raw JSON</label></div>
-          <p class="hint" x-show="truncated" x-cloak>Earlier output was discarded. Showing the latest log entries.</p>
-          <div class="log-output" x-ref="output" tabindex="0" aria-label="Command output">
-            <p class="hint" x-show="!events.length">Command output will appear here.</p>
-            <template x-for="event in events" :key="event.sequence">
-              <pre :class="event.data?.level || event.stream" x-text="rawOutput ? event.text : formatEvent(event)"></pre>
-            </template>
-          </div>
-        </section>
-      </div>
       <noscript>Enable JavaScript to use this app.</noscript>
     </main>
   </body>
