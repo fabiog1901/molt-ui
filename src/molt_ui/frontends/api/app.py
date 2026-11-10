@@ -6,16 +6,25 @@ from tempfile import SpooledTemporaryFile
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from molt_ui.core import CliError, CliService, CommandResult, create_service
+from molt_ui.bootstrap import create_service
+from molt_ui.core.errors import MoltError
+from molt_ui.core.models import (
+    CommandPlan,
+    CommandResult,
+    RunRecord,
+    RunSnapshot,
+    TableLogs,
+)
+from molt_ui.core.service import MoltService
 from molt_ui.frontends.models import CommandDefinition, StartCommand
 
 WEBAPP_DIRECTORY = files("molt_ui.webapp")
 
 
-def create_app(service: CliService | None = None) -> FastAPI:
+def create_app(service: MoltService | None = None) -> FastAPI:
     service = service if service is not None else create_service()
 
     @asynccontextmanager
@@ -25,102 +34,129 @@ def create_app(service: CliService | None = None) -> FastAPI:
 
     app = FastAPI(title="Molt UI", lifespan=lifespan)
 
+    @app.exception_handler(MoltError)
+    async def operation_error(request: Request, exc: MoltError):
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
+
     @app.get("/api/commands", response_model_exclude_unset=True)
     def commands() -> list[CommandDefinition]:
         return [CommandDefinition.model_validate(item) for item in service.commands()]
 
     @app.post("/api/jobs", status_code=201)
-    def start_command(body: StartCommand) -> dict:
+    def start_command(body: StartCommand) -> RunSnapshot:
         try:
-            return service.start(body.command, body.options, help_only=body.help_only, source_kind=body.source_kind).snapshot()
+            return service.start(
+                body.command,
+                body.options,
+                help_only=body.help_only,
+                source_kind=body.source_kind,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except CliError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/command-preview")
-    def preview_command(body: StartCommand) -> dict:
+    def preview_command(body: StartCommand) -> CommandPlan:
         try:
-            return service.preview(body.command, body.options, help_only=body.help_only, source_kind=body.source_kind)
+            return service.preview(
+                body.command,
+                body.options,
+                help_only=body.help_only,
+                source_kind=body.source_kind,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/history")
-    def run_history(limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:
-        return service.history.list(limit)
+    def run_history(limit: int = Query(default=50, ge=1, le=200)) -> list[RunRecord]:
+        return service.list_history(limit)
 
     @app.get("/api/history/{record_id}")
-    def history_record(record_id: str) -> dict:
+    def history_record(record_id: str) -> RunRecord:
         try:
-            return service.history.get(record_id)
+            return service.get_history_record(record_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail="Run record not found.") from exc
+            raise HTTPException(
+                status_code=404, detail="Run record not found."
+            ) from exc
 
     @app.get("/api/jobs")
-    def latest_job() -> dict | None:
-        job = service.jobs.latest()
-        return job.snapshot() if job else None
+    def latest_run() -> RunSnapshot | None:
+        return service.latest_run()
 
     @app.post("/api/log-imports", status_code=201)
-    async def import_log(request: Request) -> dict:
-        # Raw file upload avoids multipart dependencies and browser-side buffering.
+    async def import_log(request: Request) -> RunSnapshot:
         with SpooledTemporaryFile(max_size=1024 * 1024) as upload:
             size = 0
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > 256 * 1024 * 1024:
-                    raise HTTPException(status_code=413, detail="Log uploads are limited to 256 MiB.")
+                    raise HTTPException(
+                        status_code=413, detail="Log uploads are limited to 256 MiB."
+                    )
                 await asyncio.to_thread(upload.write, chunk)
             upload.seek(0)
-            with io.TextIOWrapper(upload, encoding="utf-8-sig", errors="replace") as source:
+            with io.TextIOWrapper(
+                upload, encoding="utf-8-sig", errors="replace"
+            ) as source:
                 try:
-                    job = await asyncio.to_thread(service.import_log, source)
-                    return job.snapshot()
+                    return await asyncio.to_thread(service.import_log, source)
                 except ValueError as exc:
                     raise HTTPException(status_code=422, detail=str(exc)) from exc
-                except CliError as exc:
+                except MoltError as exc:
                     raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    def get_job(job_id: str):
+    @app.get("/api/jobs/{run_id}")
+    def run_status(run_id: str, after: int = Query(default=0, ge=0)) -> RunSnapshot:
         try:
-            return service.jobs.get(job_id)
+            return service.get_run(run_id, after)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail="Run not found; only the latest run is retained.") from exc
+            raise HTTPException(
+                status_code=404,
+                detail="Run not found; only the latest run is retained.",
+            ) from exc
 
-    @app.get("/api/jobs/{job_id}")
-    def job_status(job_id: str, after: int = Query(default=0, ge=0)) -> dict:
-        return get_job(job_id).snapshot(after)
-
-    @app.post("/api/jobs/{job_id}/stop")
-    def stop_job(job_id: str) -> dict:
-        job = get_job(job_id)
-        job.stop()
-        return job.snapshot()
-
-    @app.get("/api/jobs/{job_id}/table-logs")
-    def table_logs(job_id: str, table: str, limit: int = Query(default=50, ge=1, le=100)) -> dict:
+    @app.post("/api/jobs/{run_id}/stop")
+    def stop_run(run_id: str) -> RunSnapshot:
         try:
-            return get_job(job_id).table_logs(table, limit)
+            return service.stop_run(run_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail="Table not found in this run.") from exc
+            raise HTTPException(
+                status_code=404,
+                detail="Run not found; only the latest run is retained.",
+            ) from exc
+
+    @app.get("/api/jobs/{run_id}/table-logs")
+    def table_logs(
+        run_id: str, table: str, limit: int = Query(default=50, ge=1, le=100)
+    ) -> TableLogs:
+        try:
+            return service.get_table_logs(run_id, table, limit)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404, detail="Run or table not found."
+            ) from exc
 
     @app.post("/api/cli/help", response_model=CommandResult)
-    def cli_help() -> CommandResult:
-        try:
-            return service.help()
-        except CliError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    def molt_help() -> CommandResult:
+        return service.help()
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(WEBAPP_DIRECTORY / "index.html")
 
-    app.mount("/static", StaticFiles(directory=WEBAPP_DIRECTORY / "static"), name="static")
+    app.mount(
+        "/static", StaticFiles(directory=WEBAPP_DIRECTORY / "static"), name="static"
+    )
     return app
 
 
 def main() -> None:
-    uvicorn.run("molt_ui.frontends.api.app:create_app", factory=True, host="127.0.0.1", port=8000)
+    uvicorn.run(
+        "molt_ui.frontends.api.app:create_app",
+        factory=True,
+        host="127.0.0.1",
+        port=8000,
+    )
 
 
 if __name__ == "__main__":

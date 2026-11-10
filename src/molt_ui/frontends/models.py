@@ -26,7 +26,9 @@ class OptionChoice(FrontendModel):
 
 
 class ApplicabilityRule(FrontendModel):
-    test: Literal["data-load", "staged", "bucket", "local", "recreate", "empty-target", "dialect"]
+    test: Literal[
+        "data-load", "staged", "bucket", "local", "recreate", "empty-target", "dialect"
+    ]
     value: str | None = None
 
 
@@ -42,7 +44,9 @@ class CommandOption(FrontendModel):
     from_environment: bool = False
     default_label: str = ""
     default_by_source: dict[str, StrictStr | StrictBool] = Field(default_factory=dict)
-    stage: Literal["operation", "connections", "common", "advanced", "logging", "metrics"]
+    stage: Literal[
+        "operation", "connections", "common", "advanced", "logging", "metrics"
+    ]
     rules: list[ApplicabilityRule] = Field(default_factory=list)
     label: str
     choices: list[OptionChoice] = Field(default_factory=list)

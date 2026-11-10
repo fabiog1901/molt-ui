@@ -15,7 +15,7 @@ poetry run molt-tui
 poetry run molt-web
 ```
 
-Open http://127.0.0.1:8000 for the SPA; API documentation is at `/docs`.
+Open <http://127.0.0.1:8000> for the SPA; API documentation is at `/docs`.
 For automatic web reload:
 
 ```sh
@@ -183,13 +183,17 @@ Raw logs and per-table detail buffers remain in memory and are not persisted.
 ## Architecture
 
 - `core/models.py`: shared Pydantic output and aggregation models.
+- `core/service.py`: `MoltService`, the application interface used by both frontends.
 - `core/catalog.py`: option metadata captured from the bundled binary's help.
-- `core/commands.py`: shared validation and argument/environment construction.
+- `core/commands.py`: resolve a single command plan for preview, execution, and history.
 - `core/wizard.py`: shared applicability rules and wizard option metadata.
-- `core/history.py`: SQLite command metadata and final summaries.
-- `core/jobs.py`: process lifecycle, bounded live output, and stop behavior.
+- `core/runs.py`: in-memory run lifecycle and bounded output; no subprocess or SQLite calls.
+- `core/logs.py`: JSON-line parsing shared by live processes and imported files.
 - `core/aggregation.py`: full-run counters, table progress, and bounded table-log details.
-- `core/cli.py`: service wiring and the original synchronous help adapter.
+- `molt_process.py`: `MoltProcess` and its process handles own launching, streaming, timeouts, and termination.
+- `repo/repo.py`: `Repo` owns all SQLite access, command records, and final summaries.
+- `config.py`: executable and database configuration.
+- `bootstrap.py`: constructs the service, process adapter, and repository.
 - `frontends/models.py`: shared Pydantic request and command-field models.
 - `frontends/tui/`: Textual controls and log presentation.
 - `frontends/api/`: FastAPI command catalog, start/status/stop endpoints, and static assets.
@@ -201,6 +205,14 @@ import frontend modules. Models use Pydantic rather than dataclasses. Static
 assets are resolved through package resources rather than the API directory's
 depth, so frontend directory changes and installed wheels use the same paths.
 
+Frontends call `MoltService` for previews, starting/stopping runs, snapshots,
+imports, table logs, and history. They receive Pydantic data models and never
+access a process handle or repository directly. Process output flows back into
+the in-memory run aggregator. Completion updates storage outside the run's log
+lock, including when no frontend is polling. Imported logs use the same state
+and aggregation without creating a process. SQLite retains the existing schema
+and exact saved values; this directory refactor requires no database migration.
+
 Arguments are passed directly without a shell. Source, target, and source-CDB
 connection strings are passed through child environment variables instead of
 argv. The command API accepts only catalogued commands and flags. The server is
@@ -211,7 +223,7 @@ scaffold. Alpine.js is pinned and loaded from a CDN.
 After upgrading the binary, regenerate and review its option catalog:
 
 ```sh
-python3 scripts/update_command_catalog.py
+poetry run python scripts/update_command_catalog.py
 ```
 
 ## Verify

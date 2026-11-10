@@ -24,13 +24,17 @@ def message_table(message: str) -> str | None:
     """Only recognize messages that explicitly name a table; never use worker order."""
     for prefix in ("starting fetch for table ", "sharding not supported for table "):
         if message.startswith(prefix):
-            return message[len(prefix):].split(" - ", 1)[0].strip() or None
-    match = re.fullmatch(r"(?:finished )?truncating table \{([^{} ]+) ([^{}]+)\}", message)
+            return message[len(prefix) :].split(" - ", 1)[0].strip() or None
+    match = re.fullmatch(
+        r"(?:finished )?truncating table \{([^{} ]+) ([^{}]+)\}", message
+    )
     if match:
         return f"{match[1]}.{match[2]}"
     # COPY logs identify a table even though adjacent shard/batch records do not.
     identifier = r'(?:"(?:[^"]|"")+"|[\w$]+)'
-    match = re.match(rf"running copy from query: COPY ({identifier}(?:\.{identifier})+)\s", message)
+    match = re.match(
+        rf"running copy from query: COPY ({identifier}(?:\.{identifier})+)\s", message
+    )
     return match[1] if match else None
 
 
@@ -66,8 +70,14 @@ class LogAggregator:
             if isinstance(target, str) and target:
                 self._aliases[target] = name
         else:
-            name = next((data[key] for key in ("table", "table_name", "target_table")
-                         if isinstance(data.get(key), str) and data[key]), None)
+            name = next(
+                (
+                    data[key]
+                    for key in ("table", "table_name", "target_table")
+                    if isinstance(data.get(key), str) and data[key]
+                ),
+                None,
+            )
             name = name or message_table(message)
             name = self._aliases.get(name, name)
         if not name:
@@ -85,7 +95,10 @@ class LogAggregator:
         table.warnings += warning
         self._details.append((name, event))
         lower = message.lower()
-        if re.match(r"(?:ignoring|skipping) table\b|table skipped\b", lower) and not table.skipped:
+        if (
+            re.match(r"(?:ignoring|skipping) table\b|table skipped\b", lower)
+            and not table.skipped
+        ):
             table.skipped = True
             self._skipped += 1
         if lower.startswith("starting fetch for table "):
@@ -101,8 +114,10 @@ class LogAggregator:
             table.phase = "imported"
             self._update_rows(table, "imported", data.get("num_rows"))
         # Explicit cumulative counters, when supplied by other molt log variants.
-        for field, keys in (("exported", ("rows_exported", "exported_rows")),
-                            ("imported", ("rows_imported", "imported_rows"))):
+        for field, keys in (
+            ("exported", ("rows_exported", "exported_rows")),
+            ("imported", ("rows_imported", "imported_rows")),
+        ):
             for key in keys:
                 if key in data:
                     self._update_rows(table, field, data[key])
@@ -122,10 +137,16 @@ class LogAggregator:
     def snapshot(self, run_status: str = "running") -> dict:
         return {
             "totals": {
-                "tables": len(self.tables), "errors": self._errors, "warnings": self._warnings,
-                "skipped": self._skipped, "exported": self._exported, "imported": self._imported,
-                "log_lines": self._lines, "unassigned": self._unassigned,
-                "unassigned_errors": self._unassigned_errors, "unassigned_warnings": self._unassigned_warnings,
+                "tables": len(self.tables),
+                "errors": self._errors,
+                "warnings": self._warnings,
+                "skipped": self._skipped,
+                "exported": self._exported,
+                "imported": self._imported,
+                "log_lines": self._lines,
+                "unassigned": self._unassigned,
+                "unassigned_errors": self._unassigned_errors,
+                "unassigned_warnings": self._unassigned_warnings,
             },
             "tables": [table.snapshot(run_status) for table in self.tables.values()],
         }
@@ -133,5 +154,12 @@ class LogAggregator:
     def table_logs(self, name: str, limit: int = 50) -> dict:
         name = self._aliases.get(name, name)
         table = self.tables[name]
-        events = [event for table_name, event in self._details if table_name == name][-limit:]
-        return {"name": name, "total": table.log_lines, "truncated": table.log_lines > len(events), "events": events}
+        events = [event for table_name, event in self._details if table_name == name][
+            -limit:
+        ]
+        return {
+            "name": name,
+            "total": table.log_lines,
+            "truncated": table.log_lines > len(events),
+            "events": events,
+        }

@@ -2,9 +2,25 @@ from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, Label, RichLog, Select, Static, TabbedContent, TabPane
+from textual.widgets import (
+    Button,
+    Checkbox,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    RichLog,
+    Select,
+    Static,
+    TabbedContent,
+    TabPane,
+)
 
-from molt_ui.core import CliError, CliService, create_service
+from molt_ui.bootstrap import create_service
+from molt_ui.core.errors import MoltError
+from molt_ui.core.models import RunSnapshot
+from molt_ui.core.service import MoltService
 from molt_ui.frontends.models import CommandDefinition
 
 
@@ -32,11 +48,15 @@ class MoltApp(App):
     #notice { height: auto; margin: 1 0; color: $text-muted; }
     """
 
-    def __init__(self, service: CliService | None = None, *, log_path: str = "") -> None:
+    def __init__(
+        self, service: MoltService | None = None, *, log_path: str = ""
+    ) -> None:
         super().__init__()
         self.service = service if service is not None else create_service()
-        self.catalog = [CommandDefinition.model_validate(item) for item in self.service.commands()]
-        self.job = None
+        self.catalog = [
+            CommandDefinition.model_validate(item) for item in self.service.commands()
+        ]
+        self.run: RunSnapshot | None = None
         self.cursor = 0
         self.output_cursor = 0
         self.loading_fields = False
@@ -54,24 +74,56 @@ class MoltApp(App):
         with Horizontal(id="layout"):
             with VerticalScroll(id="form"):
                 yield Label("Preview a saved log")
-                yield Input(value=self.initial_log_path, placeholder="Path to .jsonl or .log file", id="log-path")
+                yield Input(
+                    value=self.initial_log_path,
+                    placeholder="Path to .jsonl or .log file",
+                    id="log-path",
+                )
                 yield Button("Import log", id="import-log")
                 yield Label("Command")
-                yield Select([(item.label, item.id) for item in self.catalog], value="fetch", allow_blank=False, id="command")
-                yield Static("Run executes against your configured databases. Stop ends the process; it does not undo completed work.", id="notice")
+                yield Select(
+                    [(item.label, item.id) for item in self.catalog],
+                    value="fetch",
+                    allow_blank=False,
+                    id="command",
+                )
+                yield Static(
+                    "Run executes against your configured databases. Stop ends the process; it does not undo completed work.",
+                    id="notice",
+                )
                 yield Checkbox("Show advanced options", id="advanced")
                 yield Vertical(id="fields")
             with Vertical(id="console"):
                 yield Static("Ready", id="status", markup=False)
-                yield Static("Tables 0 · Errors 0 · Warnings 0 · Skipped 0\nExported 0 · Imported 0", id="summary", markup=False)
+                yield Static(
+                    "Tables 0 · Errors 0 · Warnings 0 · Skipped 0\nExported 0 · Imported 0",
+                    id="summary",
+                    markup=False,
+                )
                 with TabbedContent():
                     with TabPane("Tables", id="progress"):
                         yield Input(placeholder="Filter table name…", id="table-filter")
                         yield DataTable(id="tables", cursor_type="row")
-                        yield Static("Select a table for recent logs", id="table-caption", markup=False)
-                        yield RichLog(id="table-output", markup=False, highlight=False, wrap=True, max_lines=100)
+                        yield Static(
+                            "Select a table for recent logs",
+                            id="table-caption",
+                            markup=False,
+                        )
+                        yield RichLog(
+                            id="table-output",
+                            markup=False,
+                            highlight=False,
+                            wrap=True,
+                            max_lines=100,
+                        )
                     with TabPane("Output", id="stdout"):
-                        yield RichLog(id="output", markup=False, highlight=False, wrap=True, max_lines=2000)
+                        yield RichLog(
+                            id="output",
+                            markup=False,
+                            highlight=False,
+                            wrap=True,
+                            max_lines=2000,
+                        )
         with Horizontal(id="actions"):
             yield Button("Run", id="run", variant="primary")
             yield Button("Help", id="help")
@@ -79,9 +131,11 @@ class MoltApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.query_one("#tables", DataTable).add_columns("Table", "Exported", "Imported", "Errors", "Warnings", "Logs", "Status")
+        self.query_one("#tables", DataTable).add_columns(
+            "Table", "Exported", "Imported", "Errors", "Warnings", "Logs", "Status"
+        )
         await self.render_fields()
-        self.set_interval(0.2, self.poll_job)
+        self.set_interval(0.2, self.poll_run)
         if self.initial_log_path:
             self.import_log()
 
@@ -96,13 +150,24 @@ class MoltApp(App):
             await container.remove_children()
             for option in self.definition().options:
                 name = option.name
-                field = Vertical(classes="field advanced" if option.advanced else "field")
+                field = Vertical(
+                    classes="field advanced" if option.advanced else "field"
+                )
                 await container.mount(field)
                 await field.mount(Label(f"--{name}"))
                 if option.kind == "bool":
-                    widget = Select([("CLI default", ""), ("Yes", "true"), ("No", "false")], value="", allow_blank=False, id=f"opt-{name}")
+                    widget = Select(
+                        [("CLI default", ""), ("Yes", "true"), ("No", "false")],
+                        value="",
+                        allow_blank=False,
+                        id=f"opt-{name}",
+                    )
                 else:
-                    widget = Input(password=option.secret, id=f"opt-{name}", placeholder="CLI default")
+                    widget = Input(
+                        password=option.secret,
+                        id=f"opt-{name}",
+                        placeholder="CLI default",
+                    )
                 widget.tooltip = option.description
                 await field.mount(widget)
             self.toggle_advanced()
@@ -126,7 +191,9 @@ class MoltApp(App):
             widget = self.query_one(f"#opt-{option.name}")
             value = widget.value
             if value != "":
-                values[option.name] = value == "true" if option.kind == "bool" else value
+                values[option.name] = (
+                    value == "true" if option.kind == "bool" else value
+                )
         return values
 
     @on(Button.Pressed, "#run")
@@ -143,17 +210,19 @@ class MoltApp(App):
     def launch(self, help_only: bool) -> None:
         if self.importing:
             return
-        if self.job and self.job.snapshot()["status"] == "running":
+        if self.run and self.run.status == "running":
             return
         try:
-            self.job = self.service.start(self.definition().id, self.options(), help_only=help_only)
-        except (ValueError, CliError) as exc:
+            self.run = self.service.start(
+                self.definition().id, self.options(), help_only=help_only
+            )
+        except (ValueError, MoltError) as exc:
             self.show_error(str(exc))
             return
-        self.attach_job(self.job)
+        self.attach_run(self.run)
 
-    def attach_job(self, job) -> None:
-        self.job = job
+    def attach_run(self, run: RunSnapshot) -> None:
+        self.run = run
         self.last_error = None
         self.cursor = 0
         self.output_cursor = 0
@@ -164,8 +233,10 @@ class MoltApp(App):
         self.query_one("#output", RichLog).clear()
         self.query_one("#table-output", RichLog).clear()
         self.query_one("#table-output", RichLog).display = False
-        self.query_one("#table-caption", Static).update("Select a table for recent logs")
-        self.poll_job()
+        self.query_one("#table-caption", Static).update(
+            "Select a table for recent logs"
+        )
+        self.poll_run()
 
     @on(Button.Pressed, "#import-log")
     @on(Input.Submitted, "#log-path")
@@ -184,22 +255,33 @@ class MoltApp(App):
         loaded = False
 
         def read_log():
-            with Path(path).expanduser().open(encoding="utf-8-sig", errors="replace") as source:
+            with (
+                Path(path)
+                .expanduser()
+                .open(encoding="utf-8-sig", errors="replace") as source
+            ):
                 return self.service.import_log(source)
 
         try:
-            self.attach_job(await asyncio.to_thread(read_log))
+            self.attach_run(await asyncio.to_thread(read_log))
             loaded = True
-        except (OSError, ValueError, CliError) as exc:
+        except (OSError, ValueError, MoltError) as exc:
             self.show_error(str(exc))
         finally:
             self.importing = False
-            self.set_running(self.job is not None and self.job.snapshot()["status"] == "running")
+            self.set_running(self.run is not None and self.run.status == "running")
         if loaded:
-            self.poll_job()
+            self.poll_run()
 
     def set_running(self, running: bool) -> None:
-        for selector in ("#run", "#help", "#command", "#fields", "#import-log", "#log-path"):
+        for selector in (
+            "#run",
+            "#help",
+            "#command",
+            "#fields",
+            "#import-log",
+            "#log-path",
+        ):
             self.query_one(selector).disabled = running
         self.query_one("#stop", Button).disabled = not running or self.importing
 
@@ -207,13 +289,18 @@ class MoltApp(App):
         self.last_error = message
         self.query_one("#status", Static).update(message)
 
-    def poll_job(self) -> None:
-        if not self.is_running or self.job is None or self.importing:
+    def poll_run(self) -> None:
+        if not self.is_running or self.run is None or self.importing:
             return
         output = self.query_one("#output", RichLog)
-        show_output = self.query_one(TabbedContent).active == "stdout" and output.size.width > 0
-        snapshot = self.job.snapshot(self.output_cursor if show_output else self.cursor)
-        self.aggregation = snapshot["aggregation"]
+        show_output = (
+            self.query_one(TabbedContent).active == "stdout" and output.size.width > 0
+        )
+        snapshot = self.service.get_run(
+            self.run.id, self.output_cursor if show_output else self.cursor
+        )
+        self.run = snapshot
+        self.aggregation = snapshot.aggregation
         totals = self.aggregation["totals"]
         self.query_one("#summary", Static).update(
             f"Tables {totals['tables']:,} · Errors {totals['errors']:,} · Warnings {totals['warnings']:,} · Skipped {totals['skipped']:,}\n"
@@ -222,21 +309,27 @@ class MoltApp(App):
         self.update_tables()
         self.update_table_logs()
         if show_output:
-            if snapshot["truncated"]:
-                output.write("Earlier output was discarded from the bounded log buffer.")
-            for event in snapshot["events"]:
+            if snapshot.truncated:
+                output.write(
+                    "Earlier output was discarded from the bounded log buffer."
+                )
+            for event in snapshot.events:
                 output.write(f"[{event.stream}] {event.text}")
-            self.output_cursor = snapshot["cursor"]
-        self.cursor = snapshot["cursor"]
-        status = snapshot["status"] + (f" · exit {snapshot['returncode']}" if snapshot["returncode"] is not None else "")
-        self.query_one("#status", Static).update(self.last_error or snapshot.get('history_error') or status)
-        self.set_running(snapshot["status"] == "running")
+            self.output_cursor = snapshot.cursor
+        self.cursor = snapshot.cursor
+        status = snapshot.status + (
+            f" · exit {snapshot.returncode}" if snapshot.returncode is not None else ""
+        )
+        self.query_one("#status", Static).update(
+            self.last_error or snapshot.history_error or status
+        )
+        self.set_running(snapshot.status == "running")
 
     @on(TabbedContent.TabActivated)
     def output_tab_changed(self) -> None:
         # Hidden RichLog widgets otherwise accumulate deferred renders before
         # their first layout. Read the bounded core buffer when the tab opens.
-        self.call_after_refresh(self.poll_job)
+        self.call_after_refresh(self.poll_run)
 
     @on(Input.Changed, "#table-filter")
     def filter_tables(self) -> None:
@@ -245,9 +338,24 @@ class MoltApp(App):
 
     def update_tables(self) -> None:
         term = self.query_one("#table-filter", Input).value.casefold()
-        rows = [row for row in self.aggregation["tables"] if term in f"{row['name']} {row['target'] or ''}".casefold()]
+        rows = [
+            row
+            for row in self.aggregation["tables"]
+            if term in f"{row['name']} {row['target'] or ''}".casefold()
+        ]
         # The terminal table is virtualized; no log widgets are created per row.
-        signature = [(row["name"], row["exported"], row["imported"], row["errors"], row["warnings"], row["log_lines"], row["status"]) for row in rows]
+        signature = [
+            (
+                row["name"],
+                row["exported"],
+                row["imported"],
+                row["errors"],
+                row["warnings"],
+                row["log_lines"],
+                row["status"],
+            )
+            for row in rows
+        ]
         if signature == self.table_signature:
             return
         self.table_signature = signature
@@ -258,7 +366,20 @@ class MoltApp(App):
                 table.remove_row(key)
                 self.table_rows.pop(key.value, None)
         for row in rows:
-            cells = [row["name"], *(f"{row[field]:,}" if row[field] is not None else "—" for field in ("exported", "imported", "errors", "warnings", "log_lines")), row["status"]]
+            cells = [
+                row["name"],
+                *(
+                    f"{row[field]:,}" if row[field] is not None else "—"
+                    for field in (
+                        "exported",
+                        "imported",
+                        "errors",
+                        "warnings",
+                        "log_lines",
+                    )
+                ),
+                row["status"],
+            ]
             if self.table_rows.get(row["name"]) == cells:
                 continue
             self.table_rows[row["name"]] = cells
@@ -276,27 +397,37 @@ class MoltApp(App):
         self.update_table_logs()
 
     def update_table_logs(self) -> None:
-        if not self.job or not self.selected_table:
+        if not self.run or not self.selected_table:
             return
-        row = next((row for row in self.aggregation["tables"] if row["name"] == self.selected_table), None)
+        row = next(
+            (
+                row
+                for row in self.aggregation["tables"]
+                if row["name"] == self.selected_table
+            ),
+            None,
+        )
         if row is None or row["log_lines"] == self.table_log_count:
             return
-        detail = self.job.table_logs(self.selected_table)
-        self.table_log_count = detail["total"]
-        self.query_one("#table-caption", Static).update(f"{detail['name']} · showing {len(detail['events'])} of {detail['total']:,} log entries")
+        detail = self.service.get_table_logs(self.run.id, self.selected_table)
+        self.table_log_count = detail.total
+        self.query_one("#table-caption", Static).update(
+            f"{detail.name} · showing {len(detail.events)} of {detail.total:,} log entries"
+        )
         output = self.query_one("#table-output", RichLog)
         output.display = True
         output.clear()
-        for event in detail["events"]:
+        for event in detail.events:
             output.write(event.text)
 
     @on(Button.Pressed, "#stop")
     def stop_command(self) -> None:
-        if self.job:
-            self.job.stop()
+        if self.run:
+            self.run = self.service.stop_run(self.run.id)
 
     async def on_unmount(self) -> None:
         import asyncio
+
         await asyncio.to_thread(self.service.close)
 
 
@@ -304,7 +435,9 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Molt terminal interface")
-    parser.add_argument("--log", default="", help="Import a saved log without running molt")
+    parser.add_argument(
+        "--log", default="", help="Import a saved log without running molt"
+    )
     args = parser.parse_args()
     MoltApp(log_path=args.log).run()
 
