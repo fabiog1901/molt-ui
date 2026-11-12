@@ -56,12 +56,12 @@
         </aside>
         <div class="main-content" x-data="moltCharts" x-effect="setContext(showingSavedOutput ? 'history' : 'jobs', showingSavedOutput ? selectedRecord?.id : job?.id, overviewView === 'charts' || detailsOpen, running && !showingSavedOutput)">
           <section class="history-review" x-show="reviewingHistory" x-cloak aria-labelledby="record-heading">
-            <div class="section-heading"><div><p class="eyebrow">Saved record</p><h1 id="record-heading" x-text="selectedRecord?.origin === 'import' ? 'Imported log' : selectedRecord?.command"></h1></div></div>
-            <div class="record-actions">
-              <span class="status-badge" :class="selectedRecord?.status" x-text="selectedRecord?.status"></span>
-              <span class="hint" x-text="selectedRecord?.returncode !== null && selectedRecord?.returncode !== undefined ? 'Exit ' + selectedRecord.returncode : ''"></span>
-              <button type="button" id="rerun-history" title="Configure a new job using these saved options" x-show="canRerun(selectedRecord)" @click="rerunJob(selectedRecord)" :disabled="running || busy" x-text="busy ? 'Starting…' : 'Re-run command'"></button>
-              <button type="button" class="secondary" x-show="selectedRecord?.invocation" @click="copyCommand(selectedRecord.invocation)">Copy command</button>
+            <div class="section-heading saved-record-header">
+              <h1 id="record-heading" class="saved-record-title"><span class="record-status-icon" :class="selectedRecord?.status" role="img" :aria-label="'Status: ' + (selectedRecord?.status || 'unknown')" :title="selectedRecord?.status" x-text="({succeeded: '✓', failed: '✕', launch_failed: '✕', running: '↻', starting: '…', stopped: '■', interrupted: '!', imported: '↥'})[selectedRecord?.status] || '?' "></span><span x-text="selectedRecord?.origin === 'import' ? 'Imported log' : selectedRecord?.command"></span></h1>
+              <div class="record-actions">
+                <button type="button" id="rerun-history" title="Configure a new job using these saved options" x-show="canRerun(selectedRecord)" @click="rerunJob(selectedRecord)" :disabled="running || busy" x-text="busy ? 'Starting…' : 'Re-run command'"></button>
+                <button type="button" class="secondary" x-show="selectedRecord?.invocation" @click="copyCommand(selectedRecord.invocation)">Copy command</button>
+              </div>
             </div>
             <p class="hint" role="status" x-show="copyMessage" x-text="copyMessage"></p>
             <p class="error" x-show="selectedRecord?.error" x-text="selectedRecord?.error"></p>
@@ -159,15 +159,14 @@
           <div class="charts-view" id="charts-view" role="tabpanel" aria-labelledby="charts-tab" x-show="overviewView === 'charts'" x-cloak>
             <div class="charts-heading">
               <div><h2>Molt metrics</h2><p class="hint" role="status" x-text="statusText"></p><p class="hint" x-show="lastUpdated" x-text="lastUpdated ? 'Last sample ' + new Date(lastUpdated * 1000).toLocaleTimeString() : ''"></p></div>
+              <div class="chart-filters" x-show="available">
+                <label>Schema<select x-model="schema" @change="table = ''; filterChanged()"><option value="">All schemas</option><template x-for="name in optionsFor('schema')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
+                <label>Table<select x-model="table" @change="filterChanged()"><option value="">All tables</option><template x-for="name in optionsFor('table')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
+                <label>Shard<select x-model="shard" @change="filterChanged()"><option value="">All shards</option><template x-for="name in optionsFor('shard')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
+              </div>
               <button type="button" class="secondary" @click="refresh" :disabled="loading || !contextKey" x-text="loading ? 'Refreshing…' : 'Refresh'"></button>
             </div>
             <p class="error" role="alert" x-show="message" x-text="message"></p>
-            <div class="chart-filters" x-show="available">
-              <label>Schema<select x-model="schema" @change="table = ''; filterChanged()"><option value="">All schemas</option><template x-for="name in optionsFor('schema')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
-              <label>Table<select x-model="table" @change="filterChanged()"><option value="">All tables</option><template x-for="name in optionsFor('table')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
-              <label>Shard<select x-model="shard" @change="filterChanged()"><option value="">All shards</option><template x-for="name in optionsFor('shard')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
-            </div>
-            <p class="hint" x-show="available">The latest 1,800 samples (about 1 hour) are retained. Row rates use a 1-minute window; latency percentiles use 5 minutes. Both are estimates from collected samples.</p>
             <p class="warn hint" x-show="state.truncated">The metrics series limit was reached; some series are omitted.</p>
             <div class="chart-grid" x-ref="chartGrid" x-show="available">
               <template x-for="panel in chartPanels" :key="panel.id">
@@ -178,6 +177,7 @@
                 </article>
               </template>
             </div>
+            <p class="hint" x-show="available">The latest 1,800 samples (about 1 hour) are retained. Row rates use a 1-minute window; latency percentiles use 5 minutes. Both are estimates from collected samples.</p>
           </div>
           </section>
         </div>
