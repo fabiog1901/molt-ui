@@ -35,6 +35,7 @@
         <button type="button" class="history-scrim" x-show="historyOpen" @click="historyOpen = false" aria-label="Close history" x-cloak></button>
         <aside class="history-sidebar" id="history-sidebar" aria-labelledby="history-heading" x-show="historyOpen">
           <div class="sidebar-heading"><h2 id="history-heading">History</h2><div class="history-actions"><button type="button" class="secondary clear-history" id="clear-history" @click="clearHistory" :disabled="running || busy || historyBusy || !history.length" aria-label="Clear saved history" title="Delete all saved job records">Clear</button><button type="button" class="secondary icon-button" @click="refreshHistory" :disabled="historyBusy" aria-label="Refresh history" title="Refresh history">↻</button></div></div>
+          <button type="button" class="current-session secondary" @click="showCurrentSession" :aria-pressed="!reviewingHistory"><span class="run-indicator" :class="{active: running}" aria-hidden="true"></span> Current session</button>
           <p class="history-error error" role="alert" x-show="historyError" x-text="historyError"></p>
           <div class="history-list" aria-label="Saved command records">
             <p class="hint empty-history" x-show="!history.length" x-text="historyBusy ? 'Loading history…' : 'Your command records will appear here.'"></p>
