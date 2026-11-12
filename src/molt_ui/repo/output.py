@@ -37,18 +37,24 @@ class OutputCapture:
             self._stream.close()
 
 
+def iter_log_file(path: str) -> Iterator[OutputEvent]:
+    with Path(path).open(encoding="utf-8-sig", errors="replace") as source:
+        sequence = 0
+        while text := source.readline(16384):
+            sequence += 1
+            text = text.rstrip("\r\n")
+            yield OutputEvent(sequence=sequence, stream="log", text=text, data=parse_line(text))
+
+
 def read_log_file(path: str, *, before: int | None, limit: int) -> HistoryOutput:
     events = deque(maxlen=limit)
     total = 0
-    with Path(path).open(encoding="utf-8-sig", errors="replace") as source:
-        while text := source.readline(16384):
-            total += 1
-            if before is None or total < before:
-                text = text.rstrip("\r\n")
-                events.append((total, text))
+    for event in iter_log_file(path):
+        total += 1
+        if before is None or event.sequence < before:
+            events.append(event)
     return HistoryOutput(
         source="file", log_file=path, total=total,
-        events=tuple(OutputEvent(sequence=sequence, stream="log", text=text, data=parse_line(text))
-                     for sequence, text in events),
-        next_before=events[0][0] if events and events[0][0] > 1 else None,
+        events=tuple(events),
+        next_before=events[0].sequence if events and events[0].sequence > 1 else None,
     )

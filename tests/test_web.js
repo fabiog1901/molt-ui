@@ -337,6 +337,37 @@ test('output collapse keeps its previous height and resizing stays within the vi
   assert.equal(small.outputHeight, 140);
 });
 
+test('maximizing output preserves its size and restores from maximized or minimized states', () => {
+  const {app} = createApp([]);
+  app.setOutputHeight(320);
+  app.toggleOutputMaximized();
+  assert.equal(app.outputMaximized, true);
+  assert.equal(app.outputCollapsed, false);
+  assert.equal(app.outputHeight, 320);
+  app.toggleOutputMaximized();
+  assert.equal(app.outputMaximized, false);
+  assert.equal(app.outputHeight, 320);
+  app.toggleOutput();
+  app.toggleOutputMaximized();
+  assert.equal(app.outputMaximized, true);
+  assert.equal(app.outputCollapsed, false);
+  app.toggleOutput();
+  assert.equal(app.outputMaximized, false);
+  assert.equal(app.outputCollapsed, true);
+  app.toggleOutput();
+  assert.equal(app.outputHeight, 320);
+});
+
+test('maximized output ignores drag resizing and restores normal size for explicit resizing', () => {
+  const {app} = createApp([]);
+  app.toggleOutputMaximized();
+  app.beginOutputResize({button: 0});
+  assert.equal(app.resizingOutput, false);
+  app.setOutputHeight(300);
+  assert.equal(app.outputMaximized, false);
+  assert.equal(app.outputHeight, 300);
+});
+
 test('output splitter captures the pointer and ignores other pointers', () => {
   const { app } = createApp([]);
   const captures = [];
@@ -680,6 +711,41 @@ test('selecting history reads saved output without replacing live output or its 
   assert.equal(app.events.length, 2);
   app.showCurrentSession();
   assert.equal(app.outputEvents[1].text, 'new live line');
+});
+
+test('history displays rebuilt tables and expands saved table logs without replacing live progress', async () => {
+  const savedAggregation = {totals: {tables: 1, exported: 603}, tables: [{name: 'public.actor', exported: 603, status: 'exported'}]};
+  const page = {source: 'file', total: 5000, events: [{sequence: 5000, text: 'tail'}], aggregation: savedAggregation};
+  const detail = {name: 'public.actor', total: 2, events: [{sequence: 1, text: 'saved actor log'}]};
+  const {app, calls} = createApp([{body: page}, {body: detail}]);
+  const live = {totals: {tables: 1, exported: 9}, tables: [{name: 'public.live', exported: 9}]};
+  app.applySnapshot({...snapshot(), aggregation: live, record: {id: 'active'}});
+  app.tableFilter = 'old filter'; app.tablePage = 10; app.expandedTable = 'old table';
+  await app.reviewRecord({id: 'saved', command: 'fetch'});
+  assert.equal(app.totals.exported, 603);
+  assert.equal(app.visibleTables[0].name, 'public.actor');
+  assert.equal(app.visibleTables[0].status, 'exported');
+  assert.equal(app.tablePage, 1);
+  assert.equal(app.expandedTable, '');
+  await app.toggleTable('public.actor');
+  assert.equal(calls[1].path, '/api/history/saved/table-logs?table=public.actor');
+  assert.equal(app.tableDetail.events[0].text, 'saved actor log');
+  app.applySnapshot({...snapshot(), aggregation: {...live, totals: {exported: 10}}});
+  assert.equal(app.totals.exported, 603);
+  app.showCurrentSession();
+  assert.equal(app.totals.exported, 10);
+  assert.equal(app.visibleTables[0].name, 'public.live');
+  assert.equal(app.expandedTable, '');
+});
+
+test('history never displays live table statistics when saved logs cannot be loaded', async () => {
+  const {app} = createApp([{status: 503, body: {detail: 'Log file is missing'}}]);
+  app.applySnapshot({...snapshot(), aggregation: {totals: {exported: 100}, tables: [{name: 'public.live'}]}});
+  await app.reviewRecord({id: 'missing', command: 'fetch'});
+  assert.equal(app.visibleTables.length, 0);
+  assert.equal(app.totals.exported, undefined);
+  assert.equal(app.aggregation.totals.exported, 100);
+  assert.equal(app.historyOutputError, 'Log file is missing');
 });
 
 test('saved output pagination replaces the page and can return to the latest lines', async () => {

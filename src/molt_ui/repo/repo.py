@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 import json
 import logging
 import os
@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from molt_ui.core.logs import parse_line
 from molt_ui.core.models import CatalogRecord, CommandCatalog, HistoryOutput, OutputEvent, RunRecord
-from .output import read_log_file
+from .output import iter_log_file, read_log_file
 
 
 logger = logging.getLogger(__name__)
@@ -213,6 +213,29 @@ class Repo:
                 "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
             ).fetchall()
             return [self._decode(row) for row in rows]
+
+    def iter_run_output(self, record_id: str) -> Iterator[OutputEvent]:
+        """Read the full saved output in order without loading it all into RAM."""
+        record = self.get_run(record_id)
+        if record.log_file:
+            try:
+                yield from iter_log_file(record.log_file)
+            except OSError as exc:
+                raise RepoError(f"Could not open saved log file {record.log_file}: {exc.strerror}") from exc
+            return
+        after = 0
+        while True:
+            with self._access():
+                rows = self._connection.execute(
+                    """SELECT sequence, stream, text FROM run_output
+                       WHERE run_id=? AND sequence>? ORDER BY sequence LIMIT 1000""",
+                    (record_id, after),
+                ).fetchall()
+            if not rows:
+                return
+            for row in rows:
+                yield OutputEvent(**dict(row), data=parse_line(row["text"]))
+            after = rows[-1]["sequence"]
 
     def get_run_output(self, record_id: str, *, before: int | None = None, limit: int = 2000) -> HistoryOutput:
         record = self.get_run(record_id)

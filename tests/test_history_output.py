@@ -1,4 +1,5 @@
 from io import StringIO
+import json
 from pathlib import Path
 import sys
 import time
@@ -236,3 +237,69 @@ def test_automatic_log_discovery_ignores_old_files_and_ambiguous_files(tmp_path,
     stdout_only = LogFileTracker(["fetch", "--log-file=stdout"])
     (tmp_path / "fetch-later.log").write_text("other process")
     assert stdout_only.created_file() is None
+
+
+def test_history_rebuilds_full_file_progress_after_restart_and_expands_tables(tmp_path):
+    database = str(tmp_path / "history.sqlite3")
+    path = tmp_path / "fetch.log"
+    lines = [
+        {"source_table": "public.actor", "target_table": "public.actor", "message": "found matching table"},
+        {"table": "public.actor", "message": "data extraction phase starting"},
+        {"table": "public.actor", "num_rows": 603, "message": "data extraction from source complete"},
+        {"table": "public.actor", "num_rows": 603, "message": "data import on target for table complete"},
+        {"level": "warn", "table": "public.skipped", "message": "ignoring table as it is missing a definition on the source"},
+        {"level": "error", "table": "public.broken", "message": "connection failed"},
+        {"source_table": "public.pending", "message": "found matching table"},
+    ]
+    path.write_text("\n".join(json.dumps(line) for line in lines) + "\n" + "plain output\n" * 2105)
+    repo = Repo(database)
+    record = repo.create_run("fetch", origin="command")
+    repo.update_run(record.id, status="failed", log_file=str(path), summary={"tables": 999})
+    repo.close()
+    service = MoltService(MoltProcess("/unused"), Repo(database))
+    current = service.import_log(StringIO('unrelated current output\n'))
+    with TestClient(create_app(service)) as client:
+        page = client.get(f"/api/history/{record.id}/output?limit=1").json()
+        assert len(page["events"]) == 1
+        assert page["events"][0]["text"] == "plain output"
+        totals = page["aggregation"]["totals"]
+        assert totals["tables"] == 4
+        assert totals["exported"] == totals["imported"] == 603
+        assert totals["warnings"] == totals["errors"] == totals["skipped"] == 1
+        assert totals["log_lines"] == len(lines) + 2105
+        tables = {table["name"]: table for table in page["aggregation"]["tables"]}
+        assert tables["public.actor"]["status"] == "imported"
+        assert tables["public.actor"]["log_lines"] == 4
+        assert tables["public.skipped"]["status"] == "skipped"
+        assert tables["public.broken"]["status"] == "error"
+        assert tables["public.pending"]["status"] == "interrupted"
+        detail = client.get(f"/api/history/{record.id}/table-logs", params={"table": "public.actor", "limit": 2}).json()
+        assert detail["total"] == 4
+        assert detail["truncated"] is True
+        assert [event["sequence"] for event in detail["events"]] == [3, 4]
+        assert client.get(f"/api/history/{record.id}/table-logs?table=unknown").status_code == 404
+        assert client.get("/api/history/missing/table-logs?table=public.actor").status_code == 404
+        assert service.latest_run() == current
+        assert len(service.list_history()) == 2
+        assert client.get(f"/api/history/{record.id}/output?before=3&limit=1").json()["aggregation"] == page["aggregation"]
+        with path.open("a") as output:
+            output.write(json.dumps({"table": "public.actor", "rows_imported": 700}) + "\n")
+        assert client.get(f"/api/history/{record.id}/output").json()["aggregation"]["totals"]["imported"] == 700
+
+
+def test_captured_history_rebuilds_same_progress_as_live_run(tmp_path):
+    database = str(tmp_path / "history.sqlite3")
+    service = MoltService(MoltProcess("/unused"), Repo(database))
+    sample = Path(__file__).parents[1] / "src/molt_ui/webapp/static/sample-fetch.jsonl"
+    with sample.open() as source:
+        original = service.import_log(source)
+    service.close()
+    service = MoltService(MoltProcess("/unused"), Repo(database))
+    page = service.get_history_output(original.record.id, limit=1)
+    assert page.source == "captured"
+    assert page.aggregation == original.aggregation
+    assert len(page.events) == 1
+    detail = service.get_history_table_logs(original.record.id, "public.actor")
+    assert detail.total > 0
+    assert all(event.data.get("table") == "public.actor" or event.data.get("source_table") == "public.actor" or "public.actor" in event.text for event in detail.events)
+    service.close()

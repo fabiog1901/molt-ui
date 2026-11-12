@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from collections import deque
 import os
 from threading import Lock
 from typing import TYPE_CHECKING
@@ -11,6 +12,7 @@ from molt_ui.repo.repo import RepoError
 from molt_ui.repo.output import OutputCapture
 
 from .commands import build_plan, replay_plan
+from .aggregation import LogAggregator
 from .errors import MoltError
 from .models import CommandCatalog, CommandPlan, CommandResult, CommandSpec, HistoryOutput, RunRecord, RunSnapshot, TableLogs
 from .runs import RunManager
@@ -183,7 +185,34 @@ class MoltService:
         return self._storage(self._repo.list_runs, limit)
 
     def get_history_output(self, record_id: str, *, before: int | None = None, limit: int = 2000) -> HistoryOutput:
-        return self._storage(self._repo.get_run_output, record_id, before=before, limit=limit)
+        output, _ = self._storage(self._replay_history, record_id, before=before, limit=limit)
+        return output
+
+    def _replay_history(
+        self, record_id: str, *, before: int | None = None, limit: int = 2000
+    ) -> tuple[HistoryOutput, LogAggregator]:
+        record = self._repo.get_run(record_id)
+        aggregation = LogAggregator()
+        events = deque(maxlen=limit)
+        total = 0
+        for event in self._repo.iter_run_output(record_id):
+            aggregation.ingest(event)
+            total += 1
+            if before is None or event.sequence < before:
+                events.append(event)
+        output = HistoryOutput(
+            source="file" if record.log_file else "captured", log_file=record.log_file,
+            total=total, events=tuple(events),
+            next_before=events[0].sequence if events and events[0].sequence > 1 else None,
+            aggregation=aggregation.snapshot(record.status),
+        )
+        return output, aggregation
+
+    def get_history_table_logs(self, record_id: str, table: str, limit: int = 50) -> TableLogs:
+        _, aggregation = self._storage(self._replay_history, record_id, limit=0)
+        details = aggregation.table_logs(table, limit)
+        return TableLogs(name=details["name"], total=details["total"],
+                         truncated=details["truncated"], events=tuple(details["events"]))
 
     def delete_history_record(self, record_id: str) -> int:
         with self._operations:

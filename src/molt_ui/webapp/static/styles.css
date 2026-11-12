@@ -54,8 +54,8 @@ small { display: block; margin-top: .3rem; }
 .empty-history { padding: 1rem .35rem; }
 .history-error { padding: 0 1rem .5rem; font-size: .75rem; }
 .history-scrim { display: none; }
-.main-content { min-width: 0; min-height: 0; overflow: hidden; }
-.session-workspace { display: flex; flex-direction: column; gap: .65rem; height: 100%; min-height: 0; padding: 1rem 1.25rem .5rem; overflow: hidden; }
+.main-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.session-workspace { display: flex; flex: 1; flex-direction: column; gap: .65rem; min-height: 0; padding: 1rem 1.25rem .5rem; overflow: hidden; }
 .section-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 1rem; }
 .metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .6rem; flex: 0 0 auto; }
 .metric { background: #20242d; border: 1px solid var(--border); border-radius: .5rem; padding: .6rem .8rem; min-width: 0; }
@@ -91,12 +91,16 @@ small { display: block; margin-top: .3rem; }
 .invocation { padding: .75rem; border: 1px solid var(--border); background: #111318; border-radius: .4rem; user-select: text; }
 .command-record .invocation { flex: 1; margin: 0; }
 pre { font: .75rem/1.65 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 .25rem; }
-.history-review { height: 100%; overflow: auto; padding: 1.5rem; }
+.history-review { flex: 0 0 auto; max-height: 40%; overflow: auto; padding: .65rem 1.25rem; border-bottom: 1px solid var(--border); }
+.history-review .record-actions { margin: .35rem 0; }
+.history-metadata { font-size: .78rem; }
+.history-metadata > p, .history-metadata > pre { margin-top: .5rem; }
 .history-review > p, .history-review > .invocation { margin: .75rem 0; }
 .record-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
 .copy-record { align-self: flex-start; }
 .saved-totals { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .6rem; margin: 1rem 0; }
 .output-pane { position: relative; display: flex; flex-direction: column; flex: 0 0 auto; min-height: 44px; max-height: 60dvh; background: #11151c; border-top: 1px solid #586174; }
+.output-pane.maximized { position: fixed; inset: 0; z-index: 40; max-height: none; }
 .output-resizer { position: absolute; z-index: 5; left: 0; right: 0; top: -4px; height: 8px; cursor: row-resize; touch-action: none; }
 .output-resizer:hover, .output-resizer:focus-visible, .resizing-output .output-resizer { background: #a6d8bb66; outline-offset: -2px; }
 .resizing-output { user-select: none; cursor: row-resize; }

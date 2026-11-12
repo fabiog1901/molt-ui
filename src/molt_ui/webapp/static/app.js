@@ -7,7 +7,7 @@ document.addEventListener('alpine:init', () => {
     expandedTable: '', tableDetail: null, detailError: '', detailLoading: false,
     rawOutput: false, followOutput: true,
     historyOpen: true, historyLoaded: false,
-    outputHeight: 240, outputCollapsed: false, resizingOutput: false,
+    outputHeight: 240, outputCollapsed: false, outputMaximized: false, resizingOutput: false,
     resizeStartY: 0, resizeStartHeight: 240, resizePointer: null,
     steps: ['Operation', 'Connections', 'Common options', 'Advanced', 'Logging', 'Metrics', 'Review'],
     stages: ['operation', 'connections', 'common', 'advanced', 'logging', 'metrics', 'review'],
@@ -19,6 +19,8 @@ document.addEventListener('alpine:init', () => {
     previousLogLevel: 'info',
 
     get reviewingHistory() { return Boolean(this.selectedRecord); },
+    get displayedAggregation() { return this.showingSavedOutput ? (this.historyOutput?.aggregation || {totals: {}, tables: []}) : this.aggregation; },
+    get tableLogBase() { return this.showingSavedOutput ? `/api/history/${encodeURIComponent(this.selectedRecord.id)}` : (this.job ? `/api/jobs/${this.job.id}` : null); },
     get showingSavedOutput() { return this.reviewingHistory && !(this.running && this.selectedRecord.id === this.job?.record?.id); },
     get outputEvents() { return this.showingSavedOutput ? (this.historyOutput?.events || []) : this.events; },
     get outputCursor() { return this.showingSavedOutput ? (this.historyOutput?.total || 0) : this.cursor; },
@@ -31,6 +33,8 @@ document.addEventListener('alpine:init', () => {
       this.selectedRecord = null; this.copyMessage = '';
       this.historyOutputRequest++;
       this.historyOutput = null; this.historyOutputError = ''; this.historyOutputLoading = false;
+      this.expandedTable = ''; this.tableDetail = null; this.detailError = ''; this.detailLoading = false;
+      this.tableFilter = ''; this.tablePage = 1;
       if (!this.running) this.resetSession();
       if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
     },
@@ -38,6 +42,8 @@ document.addEventListener('alpine:init', () => {
       this.selectedRecord = record; this.copyMessage = '';
       this.historyOutput = null; this.historyOutputError = ''; this.historyOutputCleared = false;
       this.historyBefore = null;
+      this.expandedTable = ''; this.tableDetail = null; this.detailError = ''; this.detailLoading = false;
+      this.tableFilter = ''; this.tablePage = 1;
       if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
       if (this.showingSavedOutput) await this.loadHistoryOutput();
     },
@@ -62,6 +68,7 @@ document.addEventListener('alpine:init', () => {
     },
     fitOutput() { this.outputHeight = Math.min(this.outputMaxHeight(), Math.max(80, this.outputHeight)); },
     setOutputHeight(height) {
+      this.outputMaximized = false;
       this.outputCollapsed = false;
       this.outputHeight = height;
       this.fitOutput();
@@ -69,10 +76,19 @@ document.addEventListener('alpine:init', () => {
     },
     resizeOutputBy(delta) { this.setOutputHeight(this.outputHeight + delta); },
     toggleOutput() {
+      this.outputMaximized = false;
       this.outputCollapsed = !this.outputCollapsed;
       if (!this.outputCollapsed) { this.fitOutput(); if (this.followOutput) this.scrollOutputToEnd(); }
     },
+    toggleOutputMaximized() {
+      this.outputMaximized = !this.outputMaximized;
+      this.outputCollapsed = false;
+      this.resizingOutput = false;
+      if (!this.outputMaximized) this.fitOutput();
+      if (this.followOutput) this.scrollOutputToEnd();
+    },
     beginOutputResize(event) {
+      if (this.outputMaximized) return;
       if (event.button !== undefined && event.button !== 0) return;
       if (this.outputCollapsed) this.setOutputHeight(80);
       this.resizingOutput = true;
@@ -119,7 +135,7 @@ document.addEventListener('alpine:init', () => {
 
     get definition() { return this.commands.find(item => item.id === this.command); },
     get running() { return this.job?.status === 'running'; },
-    get totals() { return this.aggregation.totals; },
+    get totals() { return this.displayedAggregation.totals || {}; },
     get currentStage() { return this.stages[this.step]; },
     get reviewStep() { return this.stages.indexOf('review'); },
     get stepOptions() {
@@ -324,7 +340,7 @@ document.addEventListener('alpine:init', () => {
     },
     get filteredTables() {
       const term = this.tableFilter.toLowerCase();
-      return this.aggregation.tables.filter(table => `${table.name} ${table.target || ''}`.toLowerCase().includes(term));
+      return (this.displayedAggregation.tables || []).filter(table => `${table.name} ${table.target || ''}`.toLowerCase().includes(term));
     },
     get tablePages() { return Math.max(1, Math.ceil(this.filteredTables.length / 50)); },
     get visibleTables() {
@@ -338,19 +354,21 @@ document.addEventListener('alpine:init', () => {
       await this.loadTableLogs();
     },
     async loadTableLogs() {
-      if (!this.expandedTable || !this.job || this.detailLoading) return;
-      const name = this.expandedTable, jobId = this.job.id;
+      if (!this.expandedTable || !this.tableLogBase || this.detailLoading) return;
+      const name = this.expandedTable, base = this.tableLogBase;
       this.detailLoading = true;
       try {
-        const detail = await this.request(`/api/jobs/${jobId}/table-logs?table=${encodeURIComponent(name)}`);
-        if (this.expandedTable === name && this.job?.id === jobId) {
+        const detail = await this.request(`${base}/table-logs?table=${encodeURIComponent(name)}`);
+        if (this.expandedTable === name && this.tableLogBase === base) {
           this.tableDetail = detail; this.detailError = '';
         }
       } catch (error) {
-        if (this.expandedTable === name && this.job?.id === jobId) this.detailError = error.message;
+        if (this.expandedTable === name && this.tableLogBase === base) this.detailError = error.message;
       } finally {
-        this.detailLoading = false;
-        if (this.expandedTable && (this.expandedTable !== name || this.job?.id !== jobId)) await this.loadTableLogs();
+        if (this.tableLogBase === base) {
+          this.detailLoading = false;
+          if (this.expandedTable && this.expandedTable !== name) await this.loadTableLogs();
+        }
       }
     },
 
@@ -483,7 +501,7 @@ document.addEventListener('alpine:init', () => {
         this.applySnapshot(snapshot);
         if (!this.running && this.historyLoaded) await this.refreshHistory();
         if (!this.running && this.selectedRecord?.id === snapshot.record?.id) await this.loadHistoryOutput();
-        const selected = this.aggregation.tables.find(table => table.name === this.expandedTable);
+        const selected = (this.displayedAggregation.tables || []).find(table => table.name === this.expandedTable);
         if (selected && (!this.tableDetail || this.tableDetail.total !== selected.log_lines)) await this.loadTableLogs();
         this.error = snapshot.history_error || '';
       } catch (error) {

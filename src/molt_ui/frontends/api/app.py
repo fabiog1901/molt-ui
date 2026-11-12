@@ -100,6 +100,15 @@ def create_app(service: MoltService | None = None) -> FastAPI:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Run record not found.") from exc
 
+    @app.get("/api/history/{record_id}/table-logs")
+    def history_table_logs(
+        record_id: str, table: str, limit: int = Query(default=50, ge=1, le=100)
+    ) -> TableLogs:
+        try:
+            return service.get_history_table_logs(record_id, table, limit)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Run record or table not found.") from exc
+
     @app.post("/api/history/{record_id}/rerun", status_code=201)
     def rerun_history_record(record_id: str) -> RunSnapshot:
         try:

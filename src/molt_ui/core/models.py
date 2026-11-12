@@ -79,6 +79,7 @@ class HistoryOutput(ImmutableModel):
     total: int
     events: tuple[OutputEvent, ...]
     next_before: int | None = None
+    aggregation: dict[str, Any] = Field(default_factory=dict)
 
 
 class CommandPlan(ImmutableModel):
