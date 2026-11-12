@@ -54,7 +54,7 @@
           </div>
           <p class="sidebar-note hint">Commands and summaries are saved locally.</p>
         </aside>
-        <div class="main-content">
+        <div class="main-content" x-data="moltCharts" x-effect="setContext(showingSavedOutput ? 'history' : 'jobs', showingSavedOutput ? selectedRecord?.id : job?.id, overviewView === 'charts' || detailsOpen, running && !showingSavedOutput)">
           <section class="history-review" x-show="reviewingHistory" x-cloak aria-labelledby="record-heading">
             <div class="section-heading"><div><p class="eyebrow">Saved record</p><h1 id="record-heading" x-text="selectedRecord?.origin === 'import' ? 'Imported log' : selectedRecord?.command"></h1></div></div>
             <div class="record-actions">
@@ -63,25 +63,44 @@
               <button type="button" id="rerun-history" title="Configure a new job using these saved options" x-show="canRerun(selectedRecord)" @click="rerunJob(selectedRecord)" :disabled="running || busy" x-text="busy ? 'Starting…' : 'Re-run command'"></button>
               <button type="button" class="secondary" x-show="selectedRecord?.invocation" @click="copyCommand(selectedRecord.invocation)">Copy command</button>
             </div>
-            <details class="history-metadata">
-              <summary>Command details</summary>
-              <p class="hint" x-text="selectedRecord ? 'Started ' + formatTimestamp(selectedRecord.started_at) : ''"></p>
-              <p class="hint" x-text="selectedRecord?.finished_at ? 'Finished ' + formatTimestamp(selectedRecord.finished_at) : ''"></p>
-              <pre class="invocation" x-text="selectedRecord?.invocation || 'Imported log — no command was executed.'"></pre>
-              <p class="hint" x-show="selectedRecord?.log_file">Log file: <code x-text="selectedRecord?.log_file"></code></p>
-            </details>
             <p class="hint" role="status" x-show="copyMessage" x-text="copyMessage"></p>
             <p class="error" x-show="selectedRecord?.error" x-text="selectedRecord?.error"></p>
           </section>
-          <section class="session-workspace" x-show="reviewingHistory || job" x-cloak aria-labelledby="tables-heading">
-            <div class="section-heading"><div><p class="eyebrow" x-text="reviewingHistory ? 'Saved log' : (job?.status === 'imported' ? 'Log review' : 'Current session')"></p><h1 id="tables-heading" x-text="(reviewingHistory ? selectedRecord.command : (job?.command || '')) + (overviewView === 'charts' ? ' · charts' : ' · table progress')"></h1></div><div class="record-actions" x-show="!reviewingHistory"><span class="hint" x-show="job?.status === 'imported'">Imported log</span><button type="button" class="secondary" id="rerun-current" title="Configure a new job using these saved options" x-show="canRerun(job?.record)" @click="rerunJob(job.record)" :disabled="running || busy">Re-run command</button></div></div>
-            <details class="command-record" x-show="!reviewingHistory && job?.record?.invocation" x-cloak>
-              <summary>Command record <span class="hint">View exact invocation</span></summary>
-              <div class="command-record-body"><pre class="invocation" x-text="job?.record?.invocation"></pre><button type="button" class="secondary" @click="copyCommand(job.record.invocation)">Copy</button><span class="hint" role="status" x-text="copyMessage"></span></div>
-            </details>
+          <details class="run-metadata" x-show="reviewingHistory || job" x-cloak @toggle="detailsOpen = $el.open">
+            <summary>Command details</summary>
+            <div class="run-metadata-body">
+              <article class="run-summary" aria-labelledby="run-summary-heading">
+                <header class="run-summary-heading"><div><h2 id="run-summary-heading">Run summary</h2><p class="hint">Timing, results, and table details for this run.</p></div><span class="status-badge" :class="displayedRecord?.status" x-text="displayedRecord?.status"></span></header>
+                <dl class="run-facts">
+                  <div x-show="displayedRecord?.started_at"><dt>Started</dt><dd x-text="formatTimestamp(displayedRecord?.started_at)"></dd></div>
+                  <div x-show="displayedRecord?.finished_at"><dt>Finished</dt><dd x-text="formatTimestamp(displayedRecord?.finished_at)"></dd></div>
+                  <div x-show="displayedRecord?.returncode !== null && displayedRecord?.returncode !== undefined"><dt>Exit code</dt><dd x-text="displayedRecord?.returncode"></dd></div>
+                  <template x-for="item in runOverview" :key="item.key"><div><dt x-text="item.label"></dt><dd :class="{'error': item.attention}" x-text="formatRunValue(item.value, item.unit)"></dd></div></template>
+                </dl>
+                <p class="hint run-summary-note" x-show="!runOverview.length">No metric samples are available for this run.</p>
+                <div class="run-table-section" x-show="runTablePanels.length">
+                  <h3>Table breakdown</h3>
+                  <div class="run-table-scroll" tabindex="0" aria-label="Table timings and data errors">
+                    <table class="run-table"><thead><tr><th scope="col">Table</th><template x-for="panel in runTablePanels" :key="panel.id"><th scope="col" x-text="panel.label"></th></template></tr></thead>
+                      <tbody><template x-for="row in runTableRows" :key="row.key"><tr><th scope="row" x-text="row.name"></th><template x-for="panel in runTablePanels" :key="panel.id"><td :class="{'error': panel.metric === 'molt_fetch_num_data_errors' && row.values[panel.id] > 0}" x-text="formatRunValue(row.values[panel.id], panel.unit)"></td></template></tr></template></tbody>
+                    </table>
+                  </div>
+                  <p class="hint run-summary-note" x-show="!runTableRows.length">Table timings will appear when samples are available.</p>
+                </div>
+                <details class="run-invocation"><summary>Invocation and log file</summary>
+                  <div class="metadata-invocation"><pre class="invocation" x-text="displayedRecord?.invocation || 'Imported log — no command was executed.'"></pre><button type="button" class="secondary" x-show="displayedRecord?.invocation" @click="copyCommand(displayedRecord.invocation)">Copy</button></div>
+                  <p class="hint" x-show="displayedRecord?.log_file">Log file: <code x-text="displayedRecord?.log_file"></code></p>
+                </details>
+              </article>
+            </div>
+          </details>
+          <section class="session-workspace" x-show="reviewingHistory || job" x-cloak aria-label="Job details">
+          <div class="workspace-toolbar">
           <div class="workspace-tabs" role="tablist" aria-label="Job views" @keydown.arrow-right.prevent="overviewView = overviewView === 'tables' ? 'charts' : 'tables'; $nextTick(() => $el.querySelector('[aria-selected=true]').focus())" @keydown.arrow-left.prevent="overviewView = overviewView === 'tables' ? 'charts' : 'tables'; $nextTick(() => $el.querySelector('[aria-selected=true]').focus())">
             <button type="button" role="tab" id="tables-tab" aria-controls="table-progress-view" :aria-selected="overviewView === 'tables'" :tabindex="overviewView === 'tables' ? 0 : -1" @click="overviewView = 'tables'">Table progress</button>
             <button type="button" role="tab" id="charts-tab" aria-controls="charts-view" :aria-selected="overviewView === 'charts'" :tabindex="overviewView === 'charts' ? 0 : -1" @click="overviewView = 'charts'">Charts</button>
+          </div>
+          <div class="record-actions" x-show="!reviewingHistory"><button type="button" class="secondary" id="rerun-current" title="Configure a new job using these saved options" x-show="canRerun(job?.record)" @click="rerunJob(job.record)" :disabled="running || busy">Re-run command</button></div>
           </div>
           <div class="progress-view" id="table-progress-view" role="tabpanel" aria-labelledby="tables-tab" x-show="overviewView === 'tables'">
           <div class="metrics" aria-label="Run totals">
@@ -137,7 +156,7 @@
           </div>
             <div class="table-footnote hint"><span x-text="number(totals.unassigned ?? 0) + ' global log entries · ' + number(totals.unassigned_warnings ?? 0) + ' global warnings'"></span><span x-text="showingSavedOutput ? 'Totals include the full saved log.' : 'Totals include all received logs.'"></span></div>
           </div>
-          <div class="charts-view" id="charts-view" role="tabpanel" aria-labelledby="charts-tab" x-show="overviewView === 'charts'" x-cloak x-data="moltCharts" x-effect="setContext(showingSavedOutput ? 'history' : 'jobs', showingSavedOutput ? selectedRecord?.id : job?.id, overviewView === 'charts', running && !showingSavedOutput)">
+          <div class="charts-view" id="charts-view" role="tabpanel" aria-labelledby="charts-tab" x-show="overviewView === 'charts'" x-cloak>
             <div class="charts-heading">
               <div><h2>Molt metrics</h2><p class="hint" role="status" x-text="statusText"></p><p class="hint" x-show="lastUpdated" x-text="lastUpdated ? 'Last sample ' + new Date(lastUpdated * 1000).toLocaleTimeString() : ''"></p></div>
               <button type="button" class="secondary" @click="refresh" :disabled="loading || !contextKey" x-text="loading ? 'Refreshing…' : 'Refresh'"></button>
@@ -148,16 +167,8 @@
               <label>Table<select x-model="table" @change="filterChanged()"><option value="">All tables</option><template x-for="name in optionsFor('table')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
               <label>Shard<select x-model="shard" @change="filterChanged()"><option value="">All shards</option><template x-for="name in optionsFor('shard')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
             </div>
-            <p class="hint" x-show="available">The latest 900 samples (about 30 minutes) are retained. Row rates use a 1-minute window; latency percentiles use 5 minutes. Both are estimates from collected samples.</p>
+            <p class="hint" x-show="available">The latest 1,800 samples (about 1 hour) are retained. Row rates use a 1-minute window; latency percentiles use 5 minutes. Both are estimates from collected samples.</p>
             <p class="warn hint" x-show="state.truncated">The metrics series limit was reached; some series are omitted.</p>
-            <div class="chart-stats" x-show="available">
-              <template x-for="panel in statPanels" :key="panel.id">
-                <article class="chart-stat"><h3 x-text="panel.title"></h3>
-                  <p class="hint" x-show="!latestValues(panel).length">No samples</p>
-                  <dl><template x-for="item in latestValues(panel)" :key="JSON.stringify(item.labels)"><div><dt x-text="label(item.labels)"></dt><dd x-text="format(item.value, panel.unit)"></dd></div></template></dl>
-                </article>
-              </template>
-            </div>
             <div class="chart-grid" x-ref="chartGrid" x-show="available">
               <template x-for="panel in chartPanels" :key="panel.id">
                 <article class="chart-card"><h3 x-text="panel.title"></h3>

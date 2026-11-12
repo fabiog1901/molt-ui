@@ -20,6 +20,7 @@ document.addEventListener('alpine:init', () => {
     overviewView: 'tables',
 
     get reviewingHistory() { return Boolean(this.selectedRecord); },
+    get displayedRecord() { return this.reviewingHistory ? this.selectedRecord : this.job?.record; },
     get displayedAggregation() { return this.showingSavedOutput ? (this.historyOutput?.aggregation || {totals: {}, tables: []}) : this.aggregation; },
     get tableLogBase() { return this.showingSavedOutput ? `/api/history/${encodeURIComponent(this.selectedRecord.id)}` : (this.job ? `/api/jobs/${this.job.id}` : null); },
     get showingSavedOutput() { return this.reviewingHistory && !(this.running && this.selectedRecord.id === this.job?.record?.id); },

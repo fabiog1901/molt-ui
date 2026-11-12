@@ -75,6 +75,41 @@ test('filters use metric labels and rebuild chart series without losing samples'
   assert.equal(plots[1].destroyed, true);
 });
 
+test('run metadata preserves the last measured values independently of chart filters', () => {
+  const {app} = createCharts();
+  app.frames = [frame(10, [item('actor', 10), item('film', 20)]), frame(12, [])];
+  app.table = 'actor';
+  const values = app.latestValues(panel);
+  assert.equal(values.length, 2);
+  assert.equal(values[1].labels.table, 'film');
+  assert.equal(values[1].value, 20);
+});
+
+test('run summary groups totals and aligns table measurements without filling missing values', () => {
+  const {app} = createCharts();
+  app.available = true;
+  app.panels = JSON.parse(fs.readFileSync('src/molt_ui/webapp/static/metrics-dashboard.json', 'utf8')).filter(panel => panel.command === 'fetch');
+  app.frames = [{timestamp: 10, values: {
+    '10': [{labels: {}, value: 125}], '1': [{labels: {}, value: 2}], '7': [{labels: {}, value: 1}],
+    '4': [item('actor', 1000), item('film', 2000)],
+    '9': [item('actor', 250)], '8': [item('film', 3)],
+  }}];
+  app.table = 'actor';
+  assert.deepEqual(Array.from(app.runOverview, item => item.label), ['Duration', 'Tables', 'Task errors']);
+  assert.equal(app.runOverview[2].attention, true);
+  assert.equal(app.runTableRows.length, 2);
+  assert.equal(app.runTableRows[1].name, 'public.film');
+  assert.equal(app.runTableRows[0].values['9'], 250);
+  assert.equal(app.runTableRows[1].values['9'], undefined);
+  assert.equal(app.formatRunValue(app.runTableRows[1].values['9'], 'ms'), '—');
+  assert.equal(app.formatRunValue(125, 's'), '2m 5s');
+  assert.equal(app.formatRunValue(250, 'ms'), '250 ms');
+  assert.equal(app.formatRunValue(3600, 's'), '1h');
+  app.available = false;
+  assert.equal(app.runOverview.length, 0);
+  assert.equal(app.runTableRows.length, 0);
+});
+
 test('charts render after a hidden history view becomes visible', () => {
   const {app, plots, node, resize} = createCharts();
   app.init(); app.active = true; app.panels = [panel];
@@ -115,12 +150,12 @@ test('a completed history view does not poll and retains captured data on networ
 });
 
 test('large inventories limit rendered series and sample retention', async () => {
-  const frames = Array.from({length: 1000}, (_, index) => frame(index + 1,
+  const frames = Array.from({length: 2000}, (_, index) => frame(index + 1,
     Array.from({length: 30}, (_, table) => item(`table${table}`, table + index))));
   const {app, plots} = createCharts([reply(frames)]);
   app.contextKey = 'history/record1'; app.active = true;
   await app.refresh();
-  assert.equal(app.frames.length, 900);
+  assert.equal(app.frames.length, 1800);
   assert.equal(app.seriesFor(panel).length, 30);
   assert.equal(plots[0].data.length, 25);
 });

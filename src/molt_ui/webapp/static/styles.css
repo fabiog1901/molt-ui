@@ -59,7 +59,8 @@ small { display: block; margin-top: .3rem; }
 .history-error { padding: 0 1rem .5rem; font-size: .75rem; }
 .main-content { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .session-workspace { display: flex; flex: 1; flex-direction: column; gap: .65rem; min-height: 0; padding: 1rem 1.25rem .5rem; overflow: hidden; }
-.workspace-tabs { display: flex; gap: .35rem; flex: 0 0 auto; border-bottom: 1px solid var(--border); padding-bottom: .4rem; }
+.workspace-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: .5rem; border-bottom: 1px solid var(--border); padding-bottom: .4rem; }
+.workspace-tabs { display: flex; gap: .35rem; flex: 0 0 auto; }
 .workspace-tabs button { background: transparent; color: var(--muted); border-color: transparent; padding: .35rem .8rem; }
 .workspace-tabs button[aria-selected="true"] { background: #a6d8bb16; color: var(--accent); border-color: #a6d8bb55; }
 .progress-view { display: flex; flex: 1; flex-direction: column; min-height: 0; gap: .65rem; }
@@ -69,13 +70,28 @@ small { display: block; margin-top: .3rem; }
 .chart-filters { display: flex; gap: .75rem; }
 .chart-filters label { flex: 1; min-width: 0; margin: 0; color: var(--muted); font-size: .75rem; }
 .chart-filters select { display: block; margin-top: .25rem; }
-.chart-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: .65rem; }
-.chart-stat, .chart-card { background: #1c2028; border: 1px solid var(--border); border-radius: .5rem; min-width: 0; padding: .8rem; }
-.chart-stat h3, .chart-card h3 { font-size: .8rem; font-weight: 600; color: #dce1ec; margin-bottom: .6rem; }
-.chart-stat dl { max-height: 150px; overflow: auto; margin: 0; font-size: .78rem; font-variant-numeric: tabular-nums; }
-.chart-stat dl > div { display: flex; justify-content: space-between; gap: .7rem; padding: .2rem 0; }
-.chart-stat dt { color: var(--muted); overflow-wrap: anywhere; }
-.chart-stat dd { margin: 0; color: var(--accent); white-space: nowrap; }
+.chart-card { background: #1c2028; border: 1px solid var(--border); border-radius: .5rem; min-width: 0; padding: .8rem; }
+.chart-card h3 { font-size: .8rem; font-weight: 600; color: #dce1ec; margin-bottom: .6rem; }
+.run-summary { min-width: 0; background: #1c2028; border: 1px solid var(--border); border-radius: .5rem; padding: 1rem; }
+.run-summary-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.run-summary-heading h2 { font-size: .95rem; margin-bottom: .15rem; }
+.run-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 2rem; margin: .75rem 0 0; font-size: .8rem; }
+.run-facts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-bottom: 1px solid #343a4677; min-width: 0; }
+.run-facts dt { color: var(--muted); }
+.run-facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; font-weight: 600; }
+.run-table-section { margin-top: 1rem; }
+.run-table-section h3 { font-size: .78rem; font-weight: 600; margin-bottom: .4rem; }
+.run-table-scroll { overflow: auto; max-height: 240px; }
+.run-table { width: 100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.run-table th, .run-table td { padding: .45rem .6rem; text-align: right; white-space: nowrap; border-bottom: 1px solid #343a4677; }
+.run-table thead { position: sticky; top: 0; background: #252a34; color: var(--muted); }
+.run-table th:first-child { text-align: left; }
+.run-table tbody th { font-weight: 400; }
+.run-summary-note { margin-top: .6rem; }
+.run-invocation { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: .65rem; }
+.run-invocation .metadata-invocation { margin-top: .5rem; }
+.run-invocation > p { margin-top: .5rem; }
+@media (max-width: 700px) { .run-facts { grid-template-columns: 1fr; } .run-summary { padding: .75rem; } }
 .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
 .chart-surface { min-width: 0; }
 .chart-placeholder { display: grid; place-items: center; min-height: 180px; text-align: center; padding: 1rem; }
@@ -111,17 +127,15 @@ small { display: block; margin-top: .3rem; }
 .pagination { display: flex; flex: 0 0 auto; justify-content: flex-end; align-items: center; gap: .75rem; font-size: .75rem; }
 .pagination button { padding: .3rem .6rem; }
 .table-footnote { display: flex; flex: 0 0 auto; justify-content: space-between; gap: .75rem; font-size: .65rem; }
-.command-record { flex: 0 0 auto; background: #1c2028; border: 1px solid var(--border); border-radius: .4rem; font-size: .75rem; overflow: hidden; }
-.command-record summary { padding: .35rem .65rem; color: var(--accent); cursor: pointer; }
-.command-record summary span { margin-left: .5rem; }
-.command-record-body { display: flex; align-items: flex-start; gap: .5rem; padding: 0 .65rem .5rem; max-height: 100px; overflow: auto; }
+.run-metadata { flex: 0 0 auto; max-height: 40%; overflow: auto; padding: .5rem 1.25rem; border-bottom: 1px solid var(--border); font-size: .78rem; }
+.run-metadata summary { color: var(--accent); cursor: pointer; }
+.run-metadata-body { display: grid; gap: .5rem; padding-top: .5rem; }
+.metadata-invocation { display: flex; align-items: flex-start; gap: .5rem; min-width: 0; }
+.metadata-invocation .invocation { flex: 1; min-width: 0; margin: 0; }
 .invocation { padding: .75rem; border: 1px solid var(--border); background: #111318; border-radius: .4rem; user-select: text; }
-.command-record .invocation { flex: 1; margin: 0; }
 pre { font: .75rem/1.65 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 .25rem; }
 .history-review { flex: 0 0 auto; max-height: 40%; overflow: auto; padding: .65rem 1.25rem; border-bottom: 1px solid var(--border); }
 .history-review .record-actions { margin: .35rem 0; }
-.history-metadata { font-size: .78rem; }
-.history-metadata > p, .history-metadata > pre { margin-top: .5rem; }
 .history-review > p, .history-review > .invocation { margin: .75rem 0; }
 .record-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
 .copy-record { align-self: flex-start; }

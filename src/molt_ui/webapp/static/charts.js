@@ -8,7 +8,7 @@ document.addEventListener('alpine:init', () => {
     return {
       contextKey: '', active: false, live: false, available: false,
       panels: [], frames: [], state: {}, message: '', loading: false,
-      schema: '', table: '', shard: '',
+      schema: '', table: '', shard: '', detailsOpen: false,
       init() {
         if (globalThis.ResizeObserver) {
           observer = new ResizeObserver(() => { this.renderCharts(); this.resizeCharts(); });
@@ -43,7 +43,7 @@ document.addEventListener('alpine:init', () => {
           if (version !== generation || key !== this.contextKey) return;
           if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not load metrics.');
           this.available = data.available; this.panels = data.panels; this.state = data.state;
-          this.frames = [...this.frames, ...data.frames.filter(frame => frame.timestamp > after)].slice(-900);
+          this.frames = [...this.frames, ...data.frames.filter(frame => frame.timestamp > after)].slice(-1800);
           this.message = '';
           this.$nextTick(() => this.renderCharts());
         } catch (error) {
@@ -89,7 +89,64 @@ document.addEventListener('alpine:init', () => {
         if (value === null || value === undefined || !Number.isFinite(value)) return '—';
         return new Intl.NumberFormat(undefined, {maximumFractionDigits: 2, notation: Math.abs(value) >= 1e6 ? 'compact' : 'standard'}).format(value) + (unit ? ` ${unit}` : '');
       },
-      latestValues(panel) { return (this.frames.at(-1)?.values[panel.id] || []).filter(item => this.matches(item.labels)); },
+      latestValues(panel) {
+        // Run metadata stays independent of chart filters and transient scrape gaps.
+        for (let index = this.frames.length - 1; index >= 0; index--) {
+          const values = this.frames[index].values[panel.id];
+          if (values?.length) return values;
+        }
+        return [];
+      },
+      get runTablePanels() {
+        if (!this.available) return [];
+        const names = {
+          molt_fetch_table_overall_duration_ms: 'Total time',
+          molt_fetch_table_export_duration_ms: 'Export',
+          molt_fetch_table_import_duration_ms: 'Import',
+          molt_fetch_num_data_errors: 'Data errors',
+        };
+        return this.statPanels.filter(panel => names[panel.metric])
+          .sort((a, b) => Object.keys(names).indexOf(a.metric) - Object.keys(names).indexOf(b.metric))
+          .map(panel => ({...panel, label: names[panel.metric]}));
+      },
+      get runOverview() {
+        if (!this.available) return [];
+        const names = {'10': 'Duration', '20': 'Duration', '1': 'Tables', '7': 'Task errors',
+          '16': 'Tables verified', '17': 'Missing tables', '18': 'Extra tables'};
+        const order = ['10', '20', '1', '16', '7', '17', '18'];
+        return this.statPanels.filter(panel => names[panel.id])
+          .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+          .flatMap(panel => {
+            const values = this.latestValues(panel);
+            return (values.length ? values : [{value: null, labels: {}}]).map(item => ({
+              key: panel.id + JSON.stringify(item.labels),
+              label: names[panel.id] + (values.length > 1 ? ` · ${this.label(item.labels)}` : ''),
+              value: item.value, unit: panel.unit,
+              attention: ['7', '17', '18'].includes(panel.id) && item.value > 0,
+            }));
+          });
+      },
+      get runTableRows() {
+        const rows = new Map();
+        for (const panel of this.runTablePanels) for (const item of this.latestValues(panel)) {
+          const key = JSON.stringify(item.labels);
+          if (!rows.has(key)) rows.set(key, {key, name: this.label(item.labels), values: {}});
+          rows.get(key).values[panel.id] = item.value;
+        }
+        return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
+      },
+      formatRunValue(value, unit = '') {
+        if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+        const number = new Intl.NumberFormat(undefined, {maximumFractionDigits: 2});
+        if (!['ms', 's'].includes(unit)) return number.format(value);
+        const seconds = unit === 'ms' ? value / 1000 : value;
+        if (seconds > 0 && seconds < 1) return number.format(seconds * 1000) + ' ms';
+        if (seconds < 60) return number.format(seconds) + ' s';
+        const hours = Math.floor(seconds / 3600), minutes = Math.floor(seconds % 3600 / 60);
+        const remainder = Math.floor(seconds % 60);
+        return [hours ? `${hours}h` : '', minutes ? `${minutes}m` : '', remainder ? `${remainder}s` : '']
+          .filter(Boolean).join(' ');
+      },
       seriesFor(panel) {
         const filters = JSON.stringify([this.schema, this.table, this.shard]);
         if (cachedFrames !== this.frames || cachedFilters !== filters) {

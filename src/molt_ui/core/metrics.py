@@ -9,7 +9,7 @@ import math
 import re
 
 
-SAMPLE_LIMIT = 900
+SAMPLE_LIMIT = 1800
 SERIES_LIMIT = 2000
 LABEL = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)="((?:\\.|[^"\\])*)"')
 SAMPLE = re.compile(r'^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(.*)\})?\s+(\S+)')

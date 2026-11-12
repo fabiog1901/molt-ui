@@ -77,7 +77,7 @@ host or an owner that cannot be checked are left unchanged.
 
 Select **Charts** beside **Table progress** to view fetch or verify metrics.
 The app collects Molt's Prometheus endpoint every two seconds, even when the
-Charts view is closed, and saves the latest 900 samples (about 30 minutes) per
+Charts view is closed, and saves the latest 1,800 samples (about 1 hour) per
 job in SQLite. Saved jobs retain their charts across app restarts. Imported logs
 and jobs run before metrics collection was added have no metric samples.
 
