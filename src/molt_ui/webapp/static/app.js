@@ -393,11 +393,17 @@ document.addEventListener('alpine:init', () => {
     },
     destroy() { clearTimeout(this.timer); },
     changeCommand() {
-      this.values = {};
-      this.previousLogLevel = 'info';
-      const configured = this.definition?.default_source_dialect;
-      this.sourceKind = this.command === 'fetch' ? (['postgres', 'oracle', 'mysql'].includes(configured) ? configured : 'postgres') : '';
+      // Keep entered values when switching operations. rawOptions() limits
+      // the command to its catalog, so other operations' settings stay parked
+      // here and are available again when the user switches back.
+      if (this.command === 'fetch') {
+        const scheme = String(this.values.source || '').split(':')[0].toLowerCase();
+        const dialect = ({postgresql:'postgres', postgres:'postgres', cockroach:'postgres', cockroachdb:'postgres', mysql:'mysql', oracle:'oracle'})[scheme];
+        const configured = this.definition?.default_source_dialect;
+        this.sourceKind = dialect || this.sourceKind || (['postgres', 'oracle', 'mysql'].includes(configured) ? configured : 'postgres');
+      }
       this.preview = null; this.wizardError = ''; this.prunedOptions = [];
+      this.parametersChanged();
     },
     resetSession() {
       clearTimeout(this.timer);

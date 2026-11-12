@@ -545,6 +545,45 @@ test('Re-run restores the modal and only starts a new job after review and Run',
   assert.equal(saved.environment.MOLT_SOURCE, 'mysql://saved/source');
 });
 
+test('changing operations after Re-run preserves values and only submits applicable flags', () => {
+  const {app, calls} = createApp([]);
+  const common = [
+    {name: 'source', kind: 'string'}, {name: 'target', kind: 'string'},
+    {name: 'logging', kind: 'string'}, {name: 'log-file', kind: 'string', default: 'default.log'},
+    {name: 'opt-out-telemetry', kind: 'bool'},
+  ];
+  app.commands = [
+    {id: 'fetch', arguments: ['fetch'], default_source_dialect: 'postgres', options: [
+      ...common, {name: 'direct-copy', kind: 'bool'}, {name: 'mode', kind: 'string'},
+    ]},
+    {id: 'verify', arguments: ['verify'], options: [...common, {name: 'rows', kind: 'bool', default: true}]},
+  ];
+  app.$refs = {wizard: {showModal() {}}};
+  const options = {source: 'mysql://saved/source', target: 'postgres://saved/target', logging: 'disabled',
+    'log-file': '', 'opt-out-telemetry': false, 'direct-copy': false, mode: 'data-load'};
+  app.rerunJob({id: 'saved', command: 'fetch', origin: 'command', argv: ['molt', 'fetch'], options});
+  app.previousLogLevel = 'debug';
+  app.preview = {invocation: 'old command'};
+  app.command = 'verify'; app.changeCommand();
+  assert.equal(app.values.source, options.source);
+  assert.equal(app.values.target, options.target);
+  assert.equal(app.values.logging, 'disabled');
+  assert.equal(app.previousLogLevel, 'debug');
+  assert.equal(app.values['log-file'], '');
+  assert.equal(app.options()['opt-out-telemetry'], false);
+  assert.equal(Object.hasOwn(app.options(), 'direct-copy'), false);
+  assert.equal(Object.hasOwn(app.options(), 'mode'), false);
+  assert.equal(app.preview, null);
+  app.setOption(app.definition.options.find(option => option.name === 'target'), 'postgres://edited/target');
+  app.command = 'fetch'; app.changeCommand();
+  assert.equal(app.sourceKind, 'mysql');
+  assert.equal(app.options()['direct-copy'], false);
+  assert.equal(app.options().mode, 'data-load');
+  assert.equal(app.options().source, options.source);
+  assert.equal(app.options().target, 'postgres://edited/target');
+  assert.equal(calls.length, 0);
+});
+
 test('history rerun is unavailable for imports, missing argv, busy UI, or an active job', async () => {
   const { app, calls } = createApp([]);
   const saved = { id: 'saved', origin: 'command', argv: ['molt', 'fetch'] };

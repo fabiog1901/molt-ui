@@ -19,39 +19,52 @@ interface that suits your workflow.
 
 ## Get started
 
-You'll need **Python 3.14+**, **Poetry**, and the **`molt` executable**.
-Place the executable at `molt/molt` in this checkout or make it available on your
-`PATH`. To use another location, set `MOLT_EXECUTABLE` to its path.
-On first launch, the app reads Molt’s commands and saves their catalog in SQLite;
-it refreshes the catalog when the Molt version changes.
+You'll need **Python 3.14+**, **[pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html)**,
+and the **`molt` executable**.
 
-From the project directory, install the app:
+From this checkout's project directory, install Molt UI:
 
 ```sh
-poetry install
+pipx install --python python3.14 .
+pipx ensurepath
 ```
 
-Start the web app:
+Open a new terminal after `pipx ensurepath`. pipx installs the app in an isolated
+environment and makes both `molt-web` and `molt-tui` available on your `PATH`.
+
+Make the Go `molt` executable available on your `PATH`, or set its absolute path:
 
 ```sh
-poetry run molt-web
+export MOLT_EXECUTABLE=/absolute/path/to/molt
 ```
 
-Open <http://127.0.0.1:8000>. Click **Load sample log** for a quick tour, or
-**Configure command** to choose an operation, enter your connections, and review
-the command before clicking **Run**.
+Start the web app from your terminal:
+
+```sh
+molt-web
+```
+
+Open <http://127.0.0.1:8000>. Select **Configure command** to choose an operation,
+enter your connections, and review the command before clicking **Run**. For a
+quick tour without running a migration, select **Review logs → Load sample log**.
 
 To use the terminal interface instead:
 
 ```sh
-poetry run molt-tui
+molt-tui
 ```
 
 You can also open a saved log directly:
 
 ```sh
-poetry run molt-tui --log /path/to/fetch.jsonl
+molt-tui --log /path/to/fetch.jsonl
 ```
+
+On first launch, the app reads Molt's commands and stores their catalog in SQLite;
+it refreshes the catalog when the Molt version changes. Job history is saved in
+`.data/molt-ui.sqlite3` under the directory where you launch the app. Set
+`MOLT_DATABASE` to an absolute path to share the same history across launches
+from different directories.
 
 ---
 
