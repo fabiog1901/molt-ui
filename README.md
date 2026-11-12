@@ -6,16 +6,17 @@ A web and terminal interface for `molt`, the database migration tool for
 CockroachDB. Configure migrations, follow progress, and inspect results from the
 interface that suits your workflow.
 
-## What you can do
+## Features
 
-- **Configure commands with guidance.** Run fetch, verification, and schema
-  conversion with a wizard that shows relevant options for your source database.
-- **See progress clearly.** Follow live output alongside table-level row counts,
-  errors, warnings, and skipped tables.
-- **Keep a record.** Review the exact command before running it and revisit saved
-  commands and results afterward.
-- **Explore existing logs.** Import a saved log or load the included sample to
-  try the interface without running a migration.
+- Run Molt commands through a web app or terminal UI.
+- Configure commands with a guided, tabbed wizard.
+- View live logs with per-table statistics and status.
+- Resize, minimize, or maximize the output pane.
+- Save job history locally in SQLite.
+- Review past jobs and reconstruct their table summaries.
+- Re-run saved commands with editable settings.
+- Import existing log files for review.
+- Automatically update available options when Molt changes.
 
 ## Get started
 
