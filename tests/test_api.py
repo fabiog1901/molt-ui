@@ -75,6 +75,8 @@ def test_job_api_runs_real_help_and_reports_validation_errors(command_catalog):
             time.sleep(0.01)
         assert snapshot["status"] == "failed"
         assert snapshot["returncode"] != 0
+        assert "Molt exited with code" in snapshot["error"]
+        assert snapshot["record"]["error"] == snapshot["error"]
         assert (
             client.get(f'/api/jobs/{job_id}?after={snapshot["cursor"]}').json()[
                 "events"

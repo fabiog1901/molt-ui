@@ -38,6 +38,7 @@ class MoltService:
         self._environment = dict(os.environ if environment is None else environment)
         self._operations = Lock()
         self._closed = False
+        self._storage(repo.recover_abandoned_runs, process.is_owner_alive)
 
     def _require_catalog(self) -> CommandCatalog:
         if self._catalog is None:
@@ -120,7 +121,8 @@ class MoltService:
             try:
                 return self._repo.update_run(
                     snapshot.record.id, status=snapshot.status, returncode=snapshot.returncode,
-                    summary=snapshot.aggregation["totals"], error=snapshot.history_error,
+                    summary=snapshot.aggregation["totals"],
+                    error="\n".join(filter(None, (snapshot.error, snapshot.history_error))) or None,
                     log_file=log_file, output=None if log_file else capture.events(),
                 )
             finally:

@@ -40,6 +40,9 @@ class Run:
         self._on_output = on_output
         self._on_complete = on_complete
         self._history_error: str | None = None
+        self._error: str | None = None
+        self._diagnostic: str | None = None
+        self._stderr: str | None = None
 
     def ingest(self, text: str, stream: str) -> None:
         data = parse_line(text)
@@ -50,6 +53,12 @@ class Run:
             )
             self._events.append(event)
             self._aggregation.ingest(event)
+            if data and str(data.get("level", "")).lower() in {"error", "fatal", "panic"}:
+                message = data.get("message")
+                if isinstance(message, str) and message.strip():
+                    self._diagnostic = message.strip()
+            if stream == "stderr" and text.strip():
+                self._stderr = text.strip()
         on_output = self._on_output
         if on_output:
             try:
@@ -82,6 +91,7 @@ class Run:
             aggregation=self._aggregation.snapshot(status),
             record=self._record,
             history_error=self._history_error,
+            error=self._error,
         )
 
     def snapshot(self, after: int = 0) -> RunSnapshot:
@@ -93,6 +103,13 @@ class Run:
             "stopped" if stopped else ("succeeded" if returncode == 0 else "failed")
         )
         with self._lock:
+            if status == "failed":
+                reason = (
+                    f"Molt was terminated by signal {-returncode}."
+                    if returncode < 0 else f"Molt exited with code {returncode}."
+                )
+                diagnostic = self._diagnostic or self._stderr
+                self._error = f"{reason} {diagnostic}" if diagnostic else reason
             final = self._snapshot(status=status, returncode=returncode)
         record, error = self._record, self._history_error
         if self._on_complete:

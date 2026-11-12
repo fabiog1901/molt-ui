@@ -2,6 +2,9 @@ from io import StringIO
 from pathlib import Path
 import shlex
 import sys
+import json
+import os
+import subprocess
 import time
 from unittest.mock import patch
 
@@ -10,7 +13,7 @@ import pytest
 from molt_ui.core.errors import MoltError
 from molt_ui.core.models import CommandPlan
 from molt_ui.core.service import MoltService
-from molt_ui.molt_process import MoltProcess
+from molt_ui.molt_process import MoltProcess, OutputLogTee
 from molt_ui.repo import Repo
 
 
@@ -83,6 +86,111 @@ def test_completion_is_persisted_without_polling(command_catalog, tmp_path):
     assert record.invocation == plan.invocation
     observer.close()
     service.close()
+
+
+@pytest.mark.parametrize("code, diagnostic", [
+    ('import sys; print("connection refused", file=sys.stderr); sys.exit(2)', "connection refused"),
+    ('import sys; print(\'{"level":"fatal","message":"migration failed"}\'); '
+     'print("later output\\n" * 2100); sys.exit(3)', "migration failed"),
+    ('raise SystemExit(4)', "Molt exited with code 4."),
+])
+def test_failed_process_persists_diagnostic_and_output_without_polling(tmp_path, code, diagnostic):
+    database = str(tmp_path / "failure.sqlite3")
+    service = MoltService(MoltProcess(sys.executable), Repo(database))
+    plan = CommandPlan(command="fetch", argv=(sys.executable, "-c", code),
+                       environment={}, options={}, invocation="test process")
+    try:
+        with patch.object(service, "preview", return_value=plan):
+            run = service.start("fetch", {})
+        # Waiting on the process, rather than polling, must still save completion.
+        assert service._runs.get(run.id).handle.wait(5)
+        record = service.get_history_record(run.record.id)
+        assert record.status == "failed"
+        assert record.returncode != 0
+        assert record.finished_at
+        assert diagnostic in record.error
+        snapshot = service.get_run(run.id)
+        assert snapshot.error == record.error
+        assert snapshot.history_error is None
+        assert service.get_history_output(record.id).total > 0 or record.returncode == 4
+    finally:
+        service.close()
+    restarted = MoltService(MoltProcess(sys.executable), Repo(database))
+    try:
+        assert restarted.get_history_record(record.id) == record
+    finally:
+        restarted.close()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process ownership recovery")
+def test_restart_recovers_jobs_from_a_crashed_app(tmp_path):
+    database = str(tmp_path / "crashed.sqlite3")
+    code = """import json, os, sys
+from molt_ui.repo import Repo
+repo = Repo(sys.argv[1])
+starting = repo.create_run('fetch', origin='command', argv=['molt', 'fetch'])
+running = repo.create_run('verify', origin='command', argv=['molt', 'verify'])
+repo.update_run(running.id, status='running')
+print(json.dumps([starting.id, running.id]), flush=True)
+os._exit(1)
+"""
+    child = subprocess.run([sys.executable, "-c", code, database],
+                           capture_output=True, text=True, timeout=5)
+    assert child.returncode == 1, child.stderr
+    records = json.loads(child.stdout)
+    service = MoltService(MoltProcess(sys.executable), Repo(database))
+    try:
+        for record_id in records:
+            record = service.get_history_record(record_id)
+            assert record.status == "interrupted"
+            assert record.finished_at
+            assert record.returncode is None
+            assert "outcome is unknown" in record.error
+    finally:
+        service.close()
+
+
+def test_second_service_does_not_interrupt_a_live_job(tmp_path):
+    database = str(tmp_path / "shared.sqlite3")
+    first = MoltService(MoltProcess(sys.executable), Repo(database))
+    second = None
+    plan = CommandPlan(command="fetch", argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+                       environment={}, options={}, invocation="test process")
+    try:
+        with patch.object(first, "preview", return_value=plan):
+            run = first.start("fetch", {})
+        second = MoltService(MoltProcess(sys.executable), Repo(database))
+        assert second.get_history_record(run.record.id).status == "running"
+        first.close()
+        assert second.get_history_record(run.record.id).status == "stopped"
+    finally:
+        first.close()
+        if second is not None:
+            second.close()
+
+
+def test_log_finalization_failure_does_not_leave_failed_process_running():
+    service = MoltService(MoltProcess(sys.executable), Repo())
+    plan = CommandPlan(command="fetch", argv=(sys.executable, "-c",
+                       'import sys; print("problem", file=sys.stderr); sys.exit(2)'),
+                       environment={}, options={}, invocation="test process")
+    close = OutputLogTee.close
+
+    def failed_close(tee):
+        close(tee)
+        raise OSError("disk error")
+
+    try:
+        with patch.object(OutputLogTee, "close", failed_close):
+            with patch.object(service, "preview", return_value=plan):
+                run = service.start("fetch", {})
+            snapshot = wait_for(service, run)
+        assert snapshot.status == "failed"
+        assert snapshot.record.returncode == 2
+        assert "problem" in snapshot.record.error
+        assert service.get_history_output(snapshot.record.id).events[0].text == "problem"
+    finally:
+        service.close()
 
 
 def test_preview_is_nonexecuting_and_preserves_submitted_options(command_catalog):

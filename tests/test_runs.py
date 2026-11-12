@@ -67,6 +67,40 @@ def test_nonzero_exit_and_stderr_are_retained():
         assert state.returncode == 2
         assert state.events[0].stream == "stderr"
         assert state.events[0].text == "problem"
+        assert state.error == "Molt exited with code 2. problem"
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize("code", [
+    'import sys; print("informational output", file=sys.stderr)',
+    'print(\'{"level":"error","message":"recoverable error"}\')',
+])
+def test_successful_exit_does_not_become_failed_based_on_output(code):
+    manager = RunManager(MoltProcess(sys.executable))
+    try:
+        run = manager.start(python_plan(code))
+        state = wait_for(run, lambda state: state.status != "running")
+        assert state.status == "succeeded"
+        assert state.returncode == 0
+        assert state.error is None
+    finally:
+        manager.close()
+
+
+def test_signal_termination_is_reported_as_failure():
+    import os
+    import signal
+
+    if os.name != "posix":
+        pytest.skip("POSIX signal termination")
+    manager = RunManager(MoltProcess(sys.executable))
+    try:
+        run = manager.start(python_plan("import os, signal; os.kill(os.getpid(), signal.SIGTERM)"))
+        state = wait_for(run, lambda state: state.status != "running")
+        assert state.status == "failed"
+        assert state.returncode == -signal.SIGTERM
+        assert state.error == f"Molt was terminated by signal {signal.SIGTERM}."
     finally:
         manager.close()
 

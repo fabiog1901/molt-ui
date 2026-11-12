@@ -475,6 +475,7 @@ document.addEventListener('alpine:init', () => {
       const panel = this.$refs?.output;
       const follow = panel && this.followOutput && !this.outputCollapsed && !this.showingSavedOutput;
       this.job = snapshot;
+      this.error = [snapshot.error, snapshot.history_error].filter(Boolean).join(' ');
       this.aggregation = snapshot.aggregation || {totals: {}, tables: []};
       this.truncated ||= snapshot.truncated || this.events.length + snapshot.events.length > 2000;
       this.events = [...this.events, ...snapshot.events].slice(-2000);
@@ -510,7 +511,6 @@ document.addEventListener('alpine:init', () => {
         if (!this.running && this.selectedRecord?.id === snapshot.record?.id) await this.loadHistoryOutput();
         const selected = (this.displayedAggregation.tables || []).find(table => table.name === this.expandedTable);
         if (selected && (!this.tableDetail || this.tableDetail.total !== selected.log_lines)) await this.loadTableLogs();
-        this.error = snapshot.history_error || '';
       } catch (error) {
         if (this.job?.id !== jobId) return;
         if (error.status === 404) {

@@ -67,6 +67,12 @@ it refreshes the catalog when the Molt version changes. Job history is saved in
 `MOLT_DATABASE` to an absolute path to share the same history across launches
 from different directories.
 
+Jobs that exit unsuccessfully are marked **failed**, with their exit code and
+latest error diagnostic saved in history. On startup, unfinished jobs whose app
+process is no longer running are marked **interrupted**, with an unknown outcome.
+Recovery checks local process ownership on POSIX systems; jobs owned by another
+host or an owner that cannot be checked are left unchanged.
+
 ---
 
 ![Molt UI mascot carrying a database with a migration arrow](resources/media/splash.png)

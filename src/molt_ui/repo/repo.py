@@ -2,12 +2,13 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 import json
 import logging
 import os
 from pathlib import Path
 import sqlite3
+import socket
 from threading import Lock
 from uuid import uuid4
 
@@ -61,6 +62,10 @@ class Repo:
             if "log_file" not in run_columns:
                 self._connection.execute("ALTER TABLE runs ADD COLUMN log_file TEXT")
                 changes.append("added runs.log_file")
+            for column, kind in (("owner_pid", "INTEGER"), ("owner_host", "TEXT")):
+                if column not in run_columns:
+                    self._connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
+                    changes.append(f"added runs.{column}")
             self._connection.execute("""CREATE TABLE IF NOT EXISTS run_output (
                 run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
                 sequence INTEGER NOT NULL, stream TEXT NOT NULL, text TEXT NOT NULL,
@@ -151,8 +156,8 @@ class Repo:
         with self._access(write=True):
             self._connection.execute(
                 """INSERT INTO runs (id, command, origin, invocation, argv, environment, options,
-                   started_at, finished_at, status, returncode, summary, error)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   started_at, finished_at, status, returncode, summary, error, owner_pid, owner_host)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     record.id,
                     command,
@@ -167,9 +172,30 @@ class Repo:
                     None,
                     None,
                     None,
+                    os.getpid(),
+                    socket.gethostname(),
                 ),
             )
         return record
+
+    def recover_abandoned_runs(self, is_owner_alive: Callable[[int | None, str | None], bool]) -> int:
+        """Reconcile unfinished history without changing runs with a live owner."""
+        with self._access(write=True):
+            # Serialize recovery with other writers, including job completion.
+            self._connection.execute("BEGIN IMMEDIATE")
+            rows = self._connection.execute(
+                "SELECT id, owner_pid, owner_host FROM runs WHERE status IN ('starting', 'running')"
+            ).fetchall()
+            abandoned = [row["id"] for row in rows
+                         if not is_owner_alive(row["owner_pid"], row["owner_host"])]
+            message = "The app stopped before recording Molt's exit status; the outcome is unknown."
+            self._connection.executemany(
+                """UPDATE runs SET status='interrupted', finished_at=?,
+                   error=CASE WHEN error IS NULL OR error='' THEN ? ELSE error || char(10) || ? END
+                   WHERE id=? AND status IN ('starting', 'running')""",
+                ((timestamp(), message, message, record_id) for record_id in abandoned),
+            )
+        return len(abandoned)
 
     def update_run(
         self,
@@ -201,6 +227,8 @@ class Repo:
     @staticmethod
     def _decode(row) -> RunRecord:
         record = dict(row)
+        record.pop("owner_pid", None)
+        record.pop("owner_host", None)
         for field in ("argv", "environment", "options", "summary"):
             record[field] = (
                 json.loads(record[field]) if record[field] is not None else None

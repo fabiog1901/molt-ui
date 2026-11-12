@@ -321,7 +321,7 @@ class MoltApp(App):
             f" · exit {snapshot.returncode}" if snapshot.returncode is not None else ""
         )
         self.query_one("#status", Static).update(
-            self.last_error or snapshot.history_error or status
+            self.last_error or snapshot.history_error or snapshot.error or status
         )
         self.set_running(snapshot.status == "running")
 

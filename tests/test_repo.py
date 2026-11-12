@@ -76,6 +76,36 @@ def test_catalog_payload_version_and_timestamp_roundtrip(command_catalog, tmp_pa
     repo.close()
 
 
+def test_recovery_handles_legacy_jobs_and_preserves_completed_records():
+    from molt_ui.molt_process import MoltProcess
+
+    repo = Repo()
+    try:
+        legacy = repo.create_run("fetch", origin="command")
+        completed = repo.create_run("verify", origin="command")
+        completed = repo.update_run(completed.id, status="failed", returncode=2, error="original error")
+        foreign = repo.create_run("fetch", origin="command")
+        foreign = repo.update_run(foreign.id, status="running")
+        with repo._access(write=True):
+            repo._connection.execute(
+                "UPDATE runs SET owner_pid=NULL, owner_host=NULL WHERE id=?", (legacy.id,)
+            )
+            repo._connection.execute(
+                "UPDATE runs SET owner_host=? WHERE id=?", ("another-host", foreign.id)
+            )
+        assert repo.recover_abandoned_runs(MoltProcess.is_owner_alive) == 1
+        recovered = repo.get_run(legacy.id)
+        assert recovered.status == "interrupted"
+        assert recovered.finished_at
+        assert recovered.returncode is None
+        assert repo.get_run(completed.id) == completed
+        assert repo.get_run(foreign.id) == foreign
+        assert repo.recover_abandoned_runs(MoltProcess.is_owner_alive) == 0
+        assert repo.get_run(legacy.id) == recovered
+    finally:
+        repo.close()
+
+
 def test_failed_catalog_write_rolls_back_payload_and_version(command_catalog, tmp_path):
     import pytest
     from molt_ui.repo.repo import RepoError

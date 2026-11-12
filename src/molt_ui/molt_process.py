@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 from tempfile import SpooledTemporaryFile
 from threading import Event, Lock, Thread
@@ -251,6 +252,26 @@ class MoltProcess:
     def _env(self, overrides: Mapping[str, str] | None) -> dict[str, str]:
         return {**self._environment, **(overrides or {})}
 
+    @staticmethod
+    def is_owner_alive(pid: int | None, host: str | None) -> bool:
+        """Keep foreign-host or inaccessible owners; only recover known dead ones."""
+        if pid is None or host is None:
+            return False
+        if host != socket.gethostname():
+            return True
+        if os.name != "posix":
+            # kill(pid, 0) is a liveness probe only on POSIX.
+            return True
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except OSError:
+            return True
+        return True
+
     def run(self, arguments: Sequence[str]) -> CommandResult:
         if not self.executable:
             raise MoltError(
@@ -318,8 +339,17 @@ class MoltProcess:
             on_output(text, stream)
 
         def finished(returncode: int, stopped: bool):
-            if tracker is not None:
-                on_log_file(tee.close() if tee is not None else None)
-            on_exit(returncode, stopped)
+            try:
+                if tracker is not None:
+                    try:
+                        path = tee.close() if tee is not None else None
+                    except OSError:
+                        logging.getLogger(__name__).exception(
+                            "Could not finalize Molt's log file; saving captured output instead"
+                        )
+                        path = None
+                    on_log_file(path)
+            finally:
+                on_exit(returncode, stopped)
 
         return ProcessHandle(process, output, finished)

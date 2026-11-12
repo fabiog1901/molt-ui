@@ -27,6 +27,28 @@ function createApp(responses, viewport = {}) {
 const snapshot = (events = [], status = 'running') => ({ id: 'run1', command: 'fetch', status, cursor: events.at(-1)?.sequence || 0, returncode: status === 'running' ? null : 0, events, truncated: false });
 const catalog = [{ id: 'fetch', options: [{ name: 'source', kind: 'string' }, { name: 'direct-copy', kind: 'bool' }] }];
 
+test('failed jobs display the process diagnostic and stop polling', async () => {
+  const failure = {...snapshot([], 'failed'), returncode: 2,
+    error: 'Molt exited with code 2. connection refused', history_error: 'History could not be saved'};
+  const {app, scheduled} = createApp([{body: failure}]);
+  app.job = snapshot();
+  await app.poll();
+  assert.equal(app.running, false);
+  assert.equal(app.error, failure.error + ' ' + failure.history_error);
+  assert.equal(scheduled(), 0);
+});
+
+test('a job that fails before the start response displays its error immediately', async () => {
+  const failure = {...snapshot([], 'failed'), returncode: 2,
+    error: 'Molt exited with code 2. connection refused'};
+  const {app, scheduled} = createApp([{body: failure}]);
+  app.commands = catalog;
+  await app.start();
+  assert.equal(app.running, false);
+  assert.equal(app.error, failure.error);
+  assert.equal(scheduled(), 0);
+});
+
 test('starts a typed command, polls incremental logs, and handles completion', async () => {
   const first = { sequence: 1, stream: 'stdout', text: 'first', data: null };
   const second = { sequence: 2, stream: 'stderr', text: 'second', data: { level: 'warn', message: 'warning', table: 'example' } };

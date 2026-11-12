@@ -119,6 +119,7 @@ class RunSnapshot(ImmutableModel):
     aggregation: dict[str, Any]
     record: RunRecord | None = None
     history_error: str | None = None
+    error: str | None = None
 
 
 class TableLogs(ImmutableModel):
@@ -151,7 +152,7 @@ class TableProgress(BaseModel):
             status = "skipped"
         elif self.warnings:
             status = "warning"
-        elif run_status in {"failed", "stopped"} and self.phase not in {
+        elif run_status in {"failed", "stopped", "interrupted"} and self.phase not in {
             "exported",
             "imported",
             "verified",
