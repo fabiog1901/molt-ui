@@ -46,9 +46,9 @@
                 <button type="button" class="history-entry secondary" @click="reviewRecord(record)" :aria-pressed="selectedRecord?.id === record.id">
                   <span class="history-entry-title" x-text="record.origin === 'import' ? 'Imported log' : record.command"></span>
                   <span class="status-badge" :class="record.status" x-text="record.status"></span>
-                  <small x-text="formatTimestamp(record.started_at)"></small>
+                  <small x-text="formatTimestamp(record.id)"></small>
                 </button>
-                <button type="button" class="secondary history-delete" @click="deleteHistoryRecord(record)" :disabled="running || busy || historyBusy" :aria-label="'Remove ' + record.command + ' from history, ' + formatTimestamp(record.started_at)" title="Remove from history">×</button>
+                <button type="button" class="secondary history-delete" @click="deleteHistoryRecord(record)" :disabled="running || busy || historyBusy" :aria-label="'Remove ' + record.command + ' from history, ' + formatTimestamp(record.id)" title="Remove from history">×</button>
               </div>
             </template>
           </div>
@@ -72,7 +72,7 @@
               <article class="run-summary" aria-labelledby="run-summary-heading">
                 <header class="run-summary-heading"><div><h2 id="run-summary-heading">Run summary</h2><p class="hint">Timing, results, and table details for this run.</p></div><span class="status-badge" :class="displayedRecord?.status" x-text="displayedRecord?.status"></span></header>
                 <dl class="run-facts">
-                  <div x-show="displayedRecord?.started_at"><dt>Started</dt><dd x-text="formatTimestamp(displayedRecord?.started_at)"></dd></div>
+                  <div x-show="displayedRecord?.id"><dt>Started</dt><dd x-text="formatTimestamp(displayedRecord?.id)"></dd></div>
                   <div x-show="displayedRecord?.finished_at"><dt>Finished</dt><dd x-text="formatTimestamp(displayedRecord?.finished_at)"></dd></div>
                   <div x-show="displayedRecord?.returncode !== null && displayedRecord?.returncode !== undefined"><dt>Exit code</dt><dd x-text="displayedRecord?.returncode"></dd></div>
                   <template x-for="item in runOverview" :key="item.key"><div><dt x-text="item.label"></dt><dd :class="{'error': item.attention}" x-text="formatRunValue(item.value, item.unit)"></dd></div></template>

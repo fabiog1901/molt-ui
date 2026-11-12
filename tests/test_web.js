@@ -152,10 +152,30 @@ test('imports the chosen file directly and renders a preview without a command r
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, '/api/log-imports');
   assert.equal(calls[0].options.body, file);
+  assert.equal(calls[0].options.headers['X-Log-Filename'], encodeURIComponent(file.name));
   assert.equal(app.job.status, 'imported');
   assert.equal(app.job.returncode, null);
   assert.equal(app.totals.exported, 63307);
   assert.equal(app.busy, false);
+});
+
+test('history selection follows the final log timestamp while the live run keeps its polling ID', () => {
+  const {app} = createApp([]);
+  const reserved = '2026-11-12T17.50.57Z', saved = '2026-11-12T17.50.58Z';
+  app.job = {...snapshot(), id: reserved, record: {id: reserved}};
+  app.selectedRecord = app.job.record;
+  app.applySnapshot({...snapshot([], 'succeeded'), id: reserved, record: {id: saved}});
+  assert.equal(app.job.id, reserved);
+  assert.equal(app.selectedRecord.id, saved);
+  assert.equal(app.tableLogBase, '/api/history/' + encodeURIComponent(saved));
+});
+
+test('timestamp run IDs are encoded when polling the job API', async () => {
+  const id = '2026-11-12T17.50.58Z';
+  const {app, calls} = createApp([{body: {...snapshot([], 'succeeded'), id}}]);
+  app.job = {...snapshot(), id};
+  await app.poll();
+  assert.equal(calls[0].path, '/api/jobs/' + encodeURIComponent(id) + '?after=0');
 });
 
 test('sample import uses the same upload path', async () => {
@@ -511,7 +531,7 @@ test('formatted fields preserve complex values and plain output without textual 
 
 test('formatted UTC log timestamps use a space and second precision without changing the time', () => {
   const { app } = createApp([]);
-  for (const time of ['2026-09-22T16:16:07Z', '2026-09-22T16:16:07.123Z', '2026-09-22T16:16:07.123456+00:00']) {
+  for (const time of ['2026-09-22T16.16.07Z', '2026-09-22T16:16:07Z', '2026-09-22T16:16:07.123Z', '2026-09-22T16:16:07.123456+00:00']) {
     const event = { data: { time, level: 'info', message: 'Ready' } };
     assert.equal(app.formatEvent(event), '2026-09-22 16:16:07 Ready');
     assert.equal(event.data.time, time);

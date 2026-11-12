@@ -17,8 +17,7 @@ create_service(settings).close()
 """, path],
         capture_output=True, text=True, check=True,
     )
-    assert result.stdout.count("Initialized SQLite database") == 1
-    assert result.stdout.count("Loaded existing SQLite database") == 1
+    assert result.stdout.count("SQLite database ready") == 2
     assert result.stdout.count("Opening SQLite database") == 2
     assert path in result.stdout
     assert result.stderr == ""

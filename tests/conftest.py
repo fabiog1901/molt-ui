@@ -1,5 +1,8 @@
 """Small explicit catalogs keep tests independent of the bundled Go binary."""
 
+from datetime import datetime, timedelta, timezone
+from itertools import count
+
 import pytest
 
 from molt_ui.core.models import CommandCatalog, CommandSpec, OptionSpec
@@ -83,3 +86,12 @@ def command_catalog():
 @pytest.fixture(autouse=True)
 def isolated_metadata_database(monkeypatch, tmp_path):
     monkeypatch.setenv("MOLT_DATABASE", str(tmp_path / "runs.sqlite3"))
+
+
+@pytest.fixture(autouse=True)
+def repository_clock(monkeypatch):
+    """Give unrelated test operations distinct seconds; collision tests freeze this clock."""
+    ticks = count()
+    start = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr('molt_ui.repo.repo.timestamp',
+                        lambda: (start + timedelta(seconds=next(ticks))).strftime('%Y-%m-%dT%H.%M.%SZ'))

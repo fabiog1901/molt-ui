@@ -22,7 +22,7 @@ document.addEventListener('alpine:init', () => {
     get reviewingHistory() { return Boolean(this.selectedRecord); },
     get displayedRecord() { return this.reviewingHistory ? this.selectedRecord : this.job?.record; },
     get displayedAggregation() { return this.showingSavedOutput ? (this.historyOutput?.aggregation || {totals: {}, tables: []}) : this.aggregation; },
-    get tableLogBase() { return this.showingSavedOutput ? `/api/history/${encodeURIComponent(this.selectedRecord.id)}` : (this.job ? `/api/jobs/${this.job.id}` : null); },
+    get tableLogBase() { return this.showingSavedOutput ? `/api/history/${encodeURIComponent(this.selectedRecord.id)}` : (this.job ? `/api/jobs/${encodeURIComponent(this.job.id)}` : null); },
     get showingSavedOutput() { return this.reviewingHistory && !(this.running && this.selectedRecord.id === this.job?.record?.id); },
     get outputEvents() { return this.showingSavedOutput ? (this.historyOutput?.events || []) : this.events; },
     get outputCursor() { return this.showingSavedOutput ? (this.historyOutput?.total || 0) : this.cursor; },
@@ -428,7 +428,8 @@ document.addEventListener('alpine:init', () => {
       this.busy = true; this.error = '';
       try {
         this.resetRun(await this.request('/api/log-imports', {
-          method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: file,
+          method: 'POST', headers: {'Content-Type': 'application/octet-stream',
+            ...(file.name ? {'X-Log-Filename': encodeURIComponent(file.name)} : {})}, body: file,
         }));
         this.$refs?.importer?.close();
       } catch (error) { this.error = error.message; }
@@ -476,6 +477,10 @@ document.addEventListener('alpine:init', () => {
     applySnapshot(snapshot) {
       const panel = this.$refs?.output;
       const follow = panel && this.followOutput && !this.outputCollapsed && !this.showingSavedOutput;
+      if (this.selectedRecord && this.selectedRecord.id === this.job?.record?.id
+          && snapshot.record && this.selectedRecord.id !== snapshot.record.id) {
+        this.selectedRecord = snapshot.record;
+      }
       this.job = snapshot;
       this.error = [snapshot.error, snapshot.history_error].filter(Boolean).join(' ');
       this.aggregation = snapshot.aggregation || {totals: {}, tables: []};
@@ -506,7 +511,7 @@ document.addEventListener('alpine:init', () => {
       this.polling = true;
       const jobId = this.job.id;
       try {
-        const snapshot = await this.request(`/api/jobs/${jobId}?after=${this.cursor}`);
+        const snapshot = await this.request(`/api/jobs/${encodeURIComponent(jobId)}?after=${this.cursor}`);
         if (this.job?.id !== jobId) return;
         this.applySnapshot(snapshot);
         if (!this.running && this.historyLoaded) await this.refreshHistory();
@@ -530,14 +535,14 @@ document.addEventListener('alpine:init', () => {
     async stop() {
       if (!this.job) return;
       try {
-        await this.request(`/api/jobs/${this.job.id}/stop`, {method: 'POST'});
+        await this.request(`/api/jobs/${encodeURIComponent(this.job.id)}/stop`, {method: 'POST'});
         await this.poll();
       } catch (error) { this.error = error.message; }
     },
     formatTimestamp(value) {
       if (value == null) return '';
       return typeof value === 'string'
-        ? value.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/, '$1 $2')
+        ? value.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2})[.:](\d{2})[.:](\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/, '$1 $2:$3:$4')
         : value;
     },
     formatEvent(event) {

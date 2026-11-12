@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable
+from datetime import datetime, timezone
 from threading import Lock
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 from .aggregation import LogAggregator
 from .errors import MoltError
@@ -27,7 +27,7 @@ class Run:
         on_complete: Callable[[RunSnapshot], RunRecord] | None = None,
         on_output: Callable[[OutputEvent], None] | None = None,
     ) -> None:
-        self.id = str(uuid4())
+        self.id = record.id if record is not None else datetime.now(timezone.utc).strftime('%Y-%m-%dT%H.%M.%SZ')
         self.command = command
         self.handle: ProcessHandle | None = None
         self._lock = Lock()
@@ -203,7 +203,9 @@ class RunManager:
             if run.snapshot().cursor == 0:
                 raise ValueError("The log file is empty.")
             if save:
-                run.attach_record(save(run.snapshot()))
+                record = save(run.snapshot())
+                run.attach_record(record)
+                run.id = record.id
             self._run = run
             return run
 

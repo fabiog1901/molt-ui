@@ -3,6 +3,7 @@ import io
 from contextlib import asynccontextmanager
 from importlib.resources import files
 from tempfile import SpooledTemporaryFile
+from urllib.parse import unquote
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -10,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from molt_ui.bootstrap import create_service
-from molt_ui.core.errors import MoltError
+from molt_ui.core.errors import MoltError, RunConflict
 from molt_ui.core.models import (
     CommandPlan,
     CommandResult,
@@ -34,6 +35,10 @@ def create_app(service: MoltService | None = None) -> FastAPI:
         await asyncio.to_thread(service.close)
 
     app = FastAPI(title="Molt UI", lifespan=lifespan)
+
+    @app.exception_handler(RunConflict)
+    async def run_conflict(request: Request, exc: RunConflict):
+        return JSONResponse(status_code=409, content={'detail': str(exc)})
 
     @app.exception_handler(MoltError)
     async def operation_error(request: Request, exc: MoltError):
@@ -138,7 +143,11 @@ def create_app(service: MoltService | None = None) -> FastAPI:
                 upload, encoding="utf-8-sig", errors="replace"
             ) as source:
                 try:
-                    return await asyncio.to_thread(service.import_log, source)
+                    filename = request.headers.get('X-Log-Filename')
+                    return await asyncio.to_thread(
+                        service.import_log, source,
+                        filename=unquote(filename) if filename else None,
+                    )
                 except ValueError as exc:
                     raise HTTPException(status_code=422, detail=str(exc)) from exc
                 except MoltError as exc:

@@ -100,7 +100,6 @@ class RunRecord(ImmutableModel):
     argv: list[str]
     environment: dict[str, str]
     options: dict[str, str | bool]
-    started_at: str
     finished_at: str | None = None
     status: str
     returncode: int | None = None

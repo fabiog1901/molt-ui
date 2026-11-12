@@ -124,6 +124,13 @@ Job history and metric samples are saved in `.data/molt-ui.sqlite3` under the
 directory where you launch the app. Set `MOLT_DATABASE` to an absolute path to
 share the same history across launches from different directories.
 
+Run IDs keep Molt's raw UTC timestamp, such as `2026-11-12T17.50.58Z`, and the
+interface displays it as `2026-11-12 17:50:58`. Runs without a timestamped
+filename use their start time. Duplicate timestamps are rejected rather than
+assigned a suffix.
+Older database schemas are not automatically upgraded; use a fresh
+`MOLT_DATABASE` path when switching from an older schema.
+
 ## Review logs
 
 Select **Review logs** in the web app to import an existing log file. For a quick

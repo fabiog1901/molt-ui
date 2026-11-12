@@ -128,8 +128,10 @@ def test_restart_recovers_jobs_from_a_crashed_app(tmp_path):
     code = """import json, os, sys
 from molt_ui.repo import Repo
 repo = Repo(sys.argv[1])
-starting = repo.create_run('fetch', origin='command', argv=['molt', 'fetch'])
-running = repo.create_run('verify', origin='command', argv=['molt', 'verify'])
+starting = repo.create_run('fetch', origin='command', argv=['molt', 'fetch'],
+                           log_name='fetch-2026-11-12T12.00.00Z.log')
+running = repo.create_run('verify', origin='command', argv=['molt', 'verify'],
+                         log_name='verify-2026-11-12T12.00.01Z.log')
 repo.update_run(running.id, status='running')
 print(json.dumps([starting.id, running.id]), flush=True)
 os._exit(1)

@@ -22,9 +22,9 @@ class LogFileTracker:
         self.directory = Path.cwd()
         self.explicit = None
         for index, argument in enumerate(arguments):
-            if argument.startswith("--log-file="):
-                self.explicit = argument.partition("=")[2]
-            elif argument == "--log-file" and index + 1 < len(arguments):
+            if argument.startswith('--log-file='):
+                self.explicit = argument.partition('=')[2]
+            elif argument == '--log-file' and index + 1 < len(arguments):
                 self.explicit = arguments[index + 1]
         self.pattern = f"{arguments[0]}-*.log" if arguments else "*.log"
         self.before = self._files()

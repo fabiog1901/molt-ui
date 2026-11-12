@@ -2,15 +2,16 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from importlib.resources import files
 from collections.abc import Callable, Iterable, Iterator
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import sqlite3
 import socket
 from threading import Lock
-from uuid import uuid4
 
 from molt_ui.core.logs import parse_line
 from molt_ui.core.metrics import SAMPLE_LIMIT
@@ -25,8 +26,17 @@ class RepoError(RuntimeError):
     """Persistent metadata could not be read or written."""
 
 
+class RepoConflict(RepoError):
+    """A timestamp key is already used by another saved run."""
+
+
 def timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H.%M.%SZ')
+
+
+def log_timestamp(filename: str | None) -> str | None:
+    match = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}\.\d{2}\.\d{2}Z)\.log$', filename or '')
+    return match[1] if match else None
 
 
 class Repo:
@@ -43,67 +53,13 @@ class Repo:
         self._connection = sqlite3.connect(path, check_same_thread=False, timeout=10)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
-        with self._access(write=True):
-            self._connection.execute("BEGIN")
-            tables = {
-                row["name"] for row in self._connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                )
-            }
-            initializing = not ({"runs", "command_catalog"} & tables)
-            changes = [f"created {name}" for name in ("runs", "command_catalog") if name not in tables]
-            # Keep the existing schema so previously recorded runs remain readable.
-            self._connection.execute("""CREATE TABLE IF NOT EXISTS runs (
-                id TEXT PRIMARY KEY, command TEXT NOT NULL, origin TEXT NOT NULL,
-                invocation TEXT, argv TEXT NOT NULL, environment TEXT NOT NULL, options TEXT NOT NULL,
-                started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL,
-                returncode INTEGER, summary TEXT, error TEXT, log_file TEXT
-            )""")
-            run_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(runs)")}
-            if "log_file" not in run_columns:
-                self._connection.execute("ALTER TABLE runs ADD COLUMN log_file TEXT")
-                changes.append("added runs.log_file")
-            for column, kind in (("owner_pid", "INTEGER"), ("owner_host", "TEXT")):
-                if column not in run_columns:
-                    self._connection.execute(f"ALTER TABLE runs ADD COLUMN {column} {kind}")
-                    changes.append(f"added runs.{column}")
-            self._connection.execute("""CREATE TABLE IF NOT EXISTS run_output (
-                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-                sequence INTEGER NOT NULL, stream TEXT NOT NULL, text TEXT NOT NULL,
-                PRIMARY KEY (run_id, sequence)
-            )""")
-            if "run_output" not in tables:
-                changes.append("created run_output")
-            self._connection.execute("""CREATE TABLE IF NOT EXISTS run_metrics_state (
-                run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
-                payload TEXT NOT NULL
-            )""")
-            self._connection.execute("""CREATE TABLE IF NOT EXISTS run_metrics (
-                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-                timestamp REAL NOT NULL, payload TEXT NOT NULL,
-                PRIMARY KEY (run_id, timestamp)
-            )""")
-            if "run_metrics" not in tables:
-                changes.append("created run_metrics")
-            columns = {
-                row["name"] for row in self._connection.execute("PRAGMA table_info(command_catalog)")
-            }
-            if "sha256" in columns:
-                # The old table only held a file fingerprint, never a catalog.
-                # Discard that obsolete marker; startup will populate the payload.
-                changes.append("migrated command_catalog from file fingerprint to stored payload")
-                self._connection.execute("DROP TABLE command_catalog")
-            self._connection.execute("""CREATE TABLE IF NOT EXISTS command_catalog (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                version TEXT NOT NULL, payload TEXT NOT NULL, generated_at TEXT NOT NULL
-            )""")
-        # Report success only after the schema transaction has committed.
-        if initializing:
-            logger.info("Initialized SQLite database at %s (%s)", path, "; ".join(changes))
-        else:
-            if changes:
-                logger.info("Updated SQLite schema at %s (%s)", path, "; ".join(changes))
-            logger.info("Loaded existing SQLite database at %s", path)
+        try:
+            with self._access(write=True):
+                self._connection.executescript(files(__package__).joinpath('schema.sql').read_text())
+        except Exception:
+            self._connection.close()
+            raise
+        logger.info("SQLite database ready at %s", path)
 
     @contextmanager
     def _access(self, *, write: bool = False):
@@ -114,6 +70,12 @@ class Repo:
                         yield
                 else:
                     yield
+            except sqlite3.IntegrityError as exc:
+                if 'UNIQUE constraint failed: runs.id' in str(exc):
+                    raise RepoConflict(
+                        'A run with this timestamp already exists. Duplicate timestamps are not allowed.'
+                    ) from exc
+                raise RepoError(f"Could not access application metadata: {exc}") from exc
             except sqlite3.Error as exc:
                 raise RepoError(f"Could not access application metadata: {exc}") from exc
 
@@ -153,23 +115,23 @@ class Repo:
         argv=(),
         environment=None,
         options=None,
+        log_name: str | None = None,
     ) -> RunRecord:
         record = RunRecord(
-            id=str(uuid4()),
+            id=log_timestamp(log_name) or timestamp(),
             command=command,
             origin=origin,
             invocation=invocation,
             argv=list(argv),
             environment=environment or {},
             options=options or {},
-            started_at=timestamp(),
             status="starting",
         )
         with self._access(write=True):
             self._connection.execute(
                 """INSERT INTO runs (id, command, origin, invocation, argv, environment, options,
-                   started_at, finished_at, status, returncode, summary, error, owner_pid, owner_host)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   finished_at, status, returncode, summary, error, owner_pid, owner_host)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     record.id,
                     command,
@@ -178,7 +140,6 @@ class Repo:
                     json.dumps(record.argv),
                     json.dumps(record.environment),
                     json.dumps(record.options),
-                    record.started_at,
                     None,
                     "starting",
                     None,
@@ -221,26 +182,29 @@ class Repo:
         output: Iterable[OutputEvent] | None = None,
     ) -> RunRecord:
         finished = None if status in {"running", "starting"} else timestamp()
+        saved_id = log_timestamp(log_file) or record_id
         with self._access(write=True):
+            updated = self._connection.execute(
+                """UPDATE runs SET id=?, status=?, returncode=?, finished_at=?, summary=?, error=?,
+                   log_file=COALESCE(?, log_file) WHERE id=?""",
+                (saved_id, status, returncode, finished, json.dumps(summary), error, log_file, record_id),
+            ).rowcount
+            if not updated:
+                raise KeyError(record_id)
             if output is not None or log_file is not None:
-                self._connection.execute("DELETE FROM run_output WHERE run_id=?", (record_id,))
+                self._connection.execute("DELETE FROM run_output WHERE run_id=?", (saved_id,))
             if output is not None and log_file is None:
                 self._connection.executemany(
                     "INSERT INTO run_output (run_id, sequence, stream, text) VALUES (?,?,?,?)",
-                    ((record_id, event.sequence, event.stream, event.text) for event in output),
+                    ((saved_id, event.sequence, event.stream, event.text) for event in output),
                 )
-            self._connection.execute(
-                """UPDATE runs SET status=?, returncode=?, finished_at=?, summary=?, error=?,
-                   log_file=COALESCE(?, log_file) WHERE id=?""",
-                (status, returncode, finished, json.dumps(summary), error, log_file, record_id),
-            )
-        return self.get_run(record_id)
+        return self.get_run(saved_id)
 
     @staticmethod
     def _decode(row) -> RunRecord:
         record = dict(row)
-        record.pop("owner_pid", None)
-        record.pop("owner_host", None)
+        record.pop("owner_pid")
+        record.pop("owner_host")
         for field in ("argv", "environment", "options", "summary"):
             record[field] = (
                 json.loads(record[field]) if record[field] is not None else None
@@ -250,7 +214,7 @@ class Repo:
     def list_runs(self, limit: int = 50) -> list[RunRecord]:
         with self._access():
             rows = self._connection.execute(
-                "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
             return [self._decode(row) for row in rows]
 

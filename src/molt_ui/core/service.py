@@ -10,13 +10,13 @@ import os
 from threading import Lock
 from typing import TYPE_CHECKING
 
-from molt_ui.repo.repo import RepoError
+from molt_ui.repo.repo import RepoConflict, RepoError
 from molt_ui.repo.output import OutputCapture
 from molt_ui.metrics import MetricsCollector, metrics_endpoint
 
 from .commands import build_plan, replay_plan
 from .aggregation import LogAggregator
-from .errors import MoltError
+from .errors import MoltError, RunConflict
 from .models import CommandCatalog, CommandPlan, CommandResult, CommandSpec, HistoryOutput, RunRecord, RunSnapshot, TableLogs
 from .runs import RunManager
 
@@ -76,6 +76,8 @@ class MoltService:
     def _storage(self, operation, *args, **kwargs):
         try:
             return operation(*args, **kwargs)
+        except RepoConflict as exc:
+            raise RunConflict(str(exc)) from exc
         except RepoError as exc:
             raise MoltError(str(exc)) from exc
 
@@ -115,6 +117,7 @@ class MoltService:
             argv=plan.argv,
             environment=plan.environment,
             options=plan.options,
+            log_name=str(plan.options.get('log-file', '')),
         )
         capture = OutputCapture()
         log_file = None
@@ -134,6 +137,14 @@ class MoltService:
                     error="\n".join(filter(None, (snapshot.error, snapshot.history_error))) or None,
                     log_file=log_file, output=None if log_file else capture.events(),
                 )
+            except RepoConflict as exc:
+                # A late log timestamp collision must not overwrite another run
+                # or leave this finished attempt marked as running in SQLite.
+                self._repo.update_run(
+                    snapshot.record.id, status=snapshot.status, returncode=snapshot.returncode,
+                    summary=snapshot.aggregation['totals'], error=str(exc), output=capture.events(),
+                )
+                raise
             finally:
                 capture.close()
 
@@ -207,12 +218,14 @@ class MoltService:
             return {'available': False, 'state': {'status': 'unavailable'}, 'panels': [], 'frames': []}
         return self.get_history_metrics(run.record.id, after)
 
-    def import_log(self, source) -> RunSnapshot:
+    def import_log(self, source, *, filename: str | None = None) -> RunSnapshot:
         capture = OutputCapture()
+        filename = filename if filename is not None else getattr(source, 'name', None)
+        filename = filename if isinstance(filename, str) else None
 
         def save_import(snapshot: RunSnapshot) -> RunRecord:
             record = self._storage(
-                self._repo.create_run, snapshot.command, origin="import"
+                self._repo.create_run, snapshot.command, origin="import", log_name=filename
             )
             return self._storage(
                 self._repo.update_run,
