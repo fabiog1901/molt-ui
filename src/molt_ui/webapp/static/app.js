@@ -29,6 +29,10 @@ document.addEventListener('alpine:init', () => {
       if (this.showingSavedOutput) return this.selectedRecord.command + ' · saved ' + (this.historyOutput?.source === 'file' ? 'log file' : 'output');
       return this.job ? this.job.command + ' · ' + this.job.status : 'No command running';
     },
+    closeHistory() {
+      this.historyOpen = false;
+      this.$nextTick?.(() => this.$refs?.historyHandle?.focus());
+    },
     showCurrentSession() {
       this.selectedRecord = null; this.copyMessage = '';
       this.historyOutputRequest++;
@@ -36,7 +40,6 @@ document.addEventListener('alpine:init', () => {
       this.expandedTable = ''; this.tableDetail = null; this.detailError = ''; this.detailLoading = false;
       this.tableFilter = ''; this.tablePage = 1;
       if (!this.running) this.resetSession();
-      if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
     },
     async reviewRecord(record) {
       this.selectedRecord = record; this.copyMessage = '';
@@ -44,7 +47,6 @@ document.addEventListener('alpine:init', () => {
       this.historyBefore = null;
       this.expandedTable = ''; this.tableDetail = null; this.detailError = ''; this.detailLoading = false;
       this.tableFilter = ''; this.tablePage = 1;
-      if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
       if (this.showingSavedOutput) await this.loadHistoryOutput();
     },
     async loadHistoryOutput(before = null) {
@@ -373,7 +375,6 @@ document.addEventListener('alpine:init', () => {
     },
 
     async init() {
-      if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
       if ((globalThis.innerWidth || 1200) <= 600) this.outputHeight = 160;
       this.fitOutput();
       try {

@@ -14,7 +14,6 @@
       <nav class="app-navbar" aria-label="Application navigation">
         <a class="app-brand" href="/" aria-label="Molt UI home"><img class="app-logo" src="/static/media/logo.png" alt="" width="40" height="40"><span>Molt UI</span></a>
         <div class="navbar-actions">
-          <button type="button" class="secondary history-toggle" @click="historyOpen = !historyOpen" :aria-expanded="historyOpen" aria-controls="history-sidebar">☰ <span>History</span></button>
           <label for="nav-command" class="sr-only">Command</label>
           <select id="nav-command" x-model="command" x-effect="const selected = command; if (commands.length) $nextTick(() => { $el.value = selected })" @change="changeCommand" :disabled="running || busy || !commands.length" aria-label="Select command">
             <template x-for="item in commands" :key="item.id"><option :value="item.id" x-text="item.label"></option></template>
@@ -31,10 +30,10 @@
       <div class="app-error error-banner" role="alert" x-show="error" x-cloak>
         <span x-text="error"></span><button type="button" class="secondary" @click="error = ''" aria-label="Dismiss message">✕</button>
       </div>
-      <div class="app-workspace" :class="{'history-hidden': !historyOpen}">
-        <button type="button" class="history-scrim" x-show="historyOpen" @click="historyOpen = false" aria-label="Close history" x-cloak></button>
-        <aside class="history-sidebar" id="history-sidebar" aria-labelledby="history-heading" x-show="historyOpen">
-          <div class="sidebar-heading"><h2 id="history-heading">History</h2><div class="history-actions"><button type="button" class="secondary clear-history" id="clear-history" @click="clearHistory" :disabled="running || busy || historyBusy || !history.length" aria-label="Clear saved history" title="Delete all saved job records">Clear</button><button type="button" class="secondary icon-button" @click="refreshHistory" :disabled="historyBusy" aria-label="Refresh history" title="Refresh history">↻</button></div></div>
+      <div class="app-workspace" :class="{'history-open': historyOpen}">
+        <button type="button" class="history-drawer-handle" id="history-drawer-handle" x-ref="historyHandle" x-show="!historyOpen" @click="historyOpen = true; $nextTick(() => $refs.historyClose.focus())" :aria-expanded="historyOpen" aria-controls="history-sidebar" aria-label="Open history drawer" title="Open history"><span aria-hidden="true">›</span><span class="history-drawer-label" aria-hidden="true">History</span></button>
+        <aside class="history-sidebar" id="history-sidebar" aria-labelledby="history-heading" :aria-hidden="!historyOpen" :inert="!historyOpen">
+          <div class="sidebar-heading"><h2 id="history-heading">History</h2><div class="history-actions"><button type="button" class="secondary clear-history" id="clear-history" @click="clearHistory" :disabled="running || busy || historyBusy || !history.length" aria-label="Clear saved history" title="Delete all saved job records">Clear</button><button type="button" class="secondary icon-button" id="close-history-drawer" x-ref="historyClose" @click="closeHistory" aria-label="Close history drawer" title="Close history">‹</button><button type="button" class="secondary icon-button" @click="refreshHistory" :disabled="historyBusy" aria-label="Refresh history" title="Refresh history">↻</button></div></div>
           <button type="button" class="current-session secondary" @click="showCurrentSession" :aria-pressed="!reviewingHistory"><span class="run-indicator" :class="{active: running}" aria-hidden="true"></span> Current session</button>
           <p class="history-error error" role="alert" x-show="historyError" x-text="historyError"></p>
           <div class="history-list" aria-label="Saved command records">

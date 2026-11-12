@@ -417,12 +417,16 @@ test('manual output scrolling pauses follow and resuming follow reaches the late
   assert.equal(output.scrollTop, 1000);
 });
 
-test('small screens begin with a closed history drawer and selecting a record closes it', async () => {
+test('history drawer stays open through selection and current session until explicitly closed', async () => {
   const { app } = createApp([{ body: catalog }, { body: null }, { body: [] }], { innerWidth: 390, innerHeight: 650 });
   await app.init();
-  assert.equal(app.historyOpen, false);
+  assert.equal(app.historyOpen, true);
   app.historyOpen = true;
-  app.reviewRecord({ id: 'saved' });
+  await app.reviewRecord({ id: 'saved' });
+  assert.equal(app.historyOpen, true);
+  app.showCurrentSession();
+  assert.equal(app.historyOpen, true);
+  app.closeHistory();
   assert.equal(app.historyOpen, false);
 });
 
