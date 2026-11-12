@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from collections import deque
+from importlib.resources import files
+import json
 import os
 from threading import Lock
 from typing import TYPE_CHECKING
 
 from molt_ui.repo.repo import RepoError
 from molt_ui.repo.output import OutputCapture
+from molt_ui.metrics import MetricsCollector, metrics_endpoint
 
 from .commands import build_plan, replay_plan
 from .aggregation import LogAggregator
@@ -39,6 +42,9 @@ class MoltService:
         self._operations = Lock()
         self._closed = False
         self._storage(repo.recover_abandoned_runs, process.is_owner_alive)
+        self._metrics_panels = json.loads(
+            files('molt_ui.webapp').joinpath('static/metrics-dashboard.json').read_text()
+        )
 
     def _require_catalog(self) -> CommandCatalog:
         if self._catalog is None:
@@ -112,6 +118,7 @@ class MoltService:
         )
         capture = OutputCapture()
         log_file = None
+        collector = None
 
         def found_log_file(path: str | None) -> None:
             nonlocal log_file
@@ -119,6 +126,8 @@ class MoltService:
 
         def save_completion(snapshot: RunSnapshot) -> RunRecord:
             try:
+                if collector is not None:
+                    collector.close()
                 return self._repo.update_run(
                     snapshot.record.id, status=snapshot.status, returncode=snapshot.returncode,
                     summary=snapshot.aggregation["totals"],
@@ -132,11 +141,14 @@ class MoltService:
             record = self._storage(
                 self._repo.update_run, record.id, status="running"
             )
+            collector = self._create_metrics_collector(plan, record.id)
             run = self._runs.start(
                 plan, record=record, on_complete=save_completion,
                 on_output=capture.write, on_log_file=found_log_file
             )
         except MoltError as exc:
+            if collector is not None:
+                collector.close()
             capture.close()
             try:
                 self._repo.update_run(
@@ -145,7 +157,55 @@ class MoltService:
             except RepoError:
                 pass
             raise
+        if collector is not None:
+            collector.start()
         return run.snapshot()
+
+    def _create_metrics_collector(self, plan: CommandPlan, record_id: str) -> MetricsCollector | None:
+        if (plan.command not in {'fetch', 'verify'} or len(plan.argv) < 2
+                or plan.argv[1] != plan.command or '--help' in plan.argv):
+            return None
+        address = '127.0.0.1:3030'
+        if self._catalog is not None:
+            for command in self._catalog.commands:
+                if command.id == plan.command:
+                    for option in command.options:
+                        if option.name == 'metrics-listen-addr':
+                            address = str(option.default)
+        for index, argument in enumerate(plan.argv):
+            if argument.startswith('--metrics-listen-addr='):
+                address = argument.partition('=')[2]
+            elif argument == '--metrics-listen-addr' and index + 1 < len(plan.argv):
+                address = plan.argv[index + 1]
+        try:
+            endpoint = metrics_endpoint(address)
+        except ValueError as exc:
+            self._storage(self._repo.save_metrics, record_id,
+                          {'status': 'unavailable', 'error': str(exc)}, None)
+            return None
+        panels = [panel for panel in self._metrics_panels if panel['command'] == plan.command]
+        collector = MetricsCollector(endpoint, panels,
+            lambda state, frame: self._repo.save_metrics(record_id, state, frame))
+        self._storage(self._repo.save_metrics, record_id, collector.state(), None)
+        return collector
+
+    def get_history_metrics(self, record_id: str, after: float = 0) -> dict:
+        record = self._storage(self._repo.get_run, record_id)
+        state, frames = self._storage(self._repo.get_metrics, record_id, after)
+        if state and record.status not in {'starting', 'running'}:
+            state['status'] = 'interrupted' if record.status == 'interrupted' else 'complete'
+        return {
+            'available': state is not None,
+            'state': state or {'status': 'unavailable', 'error': None},
+            'panels': [panel for panel in self._metrics_panels if panel['command'] == record.command],
+            'frames': frames,
+        }
+
+    def get_run_metrics(self, run_id: str, after: float = 0) -> dict:
+        run = self._runs.get(run_id).snapshot()
+        if run.record is None:
+            return {'available': False, 'state': {'status': 'unavailable'}, 'panels': [], 'frames': []}
+        return self.get_history_metrics(run.record.id, after)
 
     def import_log(self, source) -> RunSnapshot:
         capture = OutputCapture()

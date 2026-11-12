@@ -1,0 +1,364 @@
+[
+  {
+    "id": "16",
+    "title": "Number of Tables Verified",
+    "command": "verify",
+    "type": "stat",
+    "unit": "",
+    "metric": "molt_verify_num_tables",
+    "kind": "gauge",
+    "group_by": null,
+    "category": "verified",
+    "exclude_overall": false,
+    "queries": [
+      "molt_verify_num_tables{category=\"verified\"}"
+    ]
+  },
+  {
+    "id": "17",
+    "title": "Number of Tables Missing",
+    "command": "verify",
+    "type": "stat",
+    "unit": "",
+    "metric": "molt_verify_num_tables",
+    "kind": "gauge",
+    "group_by": null,
+    "category": "missing",
+    "exclude_overall": false,
+    "queries": [
+      "molt_verify_num_tables{category=\"missing\"}"
+    ]
+  },
+  {
+    "id": "18",
+    "title": "Number of Tables Extraneous",
+    "command": "verify",
+    "type": "stat",
+    "unit": "",
+    "metric": "molt_verify_num_tables",
+    "kind": "gauge",
+    "group_by": null,
+    "category": "extraneous",
+    "exclude_overall": false,
+    "queries": [
+      "molt_verify_num_tables{category=\"extraneous\"}"
+    ]
+  },
+  {
+    "id": "20",
+    "title": "Overall Verify Duration (s)",
+    "command": "verify",
+    "type": "stat",
+    "unit": "s",
+    "metric": "molt_verify_duration_seconds",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_verify_duration_seconds"
+    ]
+  },
+  {
+    "id": "21",
+    "title": "Number of Rows Verified Over Time",
+    "command": "verify",
+    "type": "timeseries",
+    "unit": "",
+    "metric": "molt_verify_rows_read",
+    "kind": "gauge",
+    "group_by": [
+      "table"
+    ],
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "sum by (table) (molt_verify_rows_read{table=~\"$table\"})"
+    ]
+  },
+  {
+    "id": "22",
+    "title": "Number of Rows by Row Status Over Time",
+    "command": "verify",
+    "type": "timeseries",
+    "unit": "",
+    "metric": "molt_verify_row_verification_status",
+    "kind": "gauge",
+    "group_by": [
+      "table",
+      "status"
+    ],
+    "category": null,
+    "exclude_overall": true,
+    "queries": [
+      "sum by (table, status) (molt_verify_row_verification_status{table=~\"$table\", table != \"overall\" })"
+    ]
+  },
+  {
+    "id": "10",
+    "title": "Overall Fetch Duration (s)",
+    "command": "fetch",
+    "type": "stat",
+    "unit": "s",
+    "metric": "molt_fetch_overall_duration",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_fetch_overall_duration"
+    ]
+  },
+  {
+    "id": "7",
+    "title": "Number of Task Errors",
+    "command": "fetch",
+    "type": "stat",
+    "unit": "",
+    "metric": "molt_fetch_num_task_errors",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_fetch_num_task_errors"
+    ]
+  },
+  {
+    "id": "4",
+    "title": "Overall Duration",
+    "command": "fetch",
+    "type": "stat",
+    "unit": "ms",
+    "metric": "molt_fetch_table_overall_duration_ms",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_fetch_table_overall_duration_ms{schema=~\"$schema\",table=~\"$table\"}"
+    ]
+  },
+  {
+    "id": "1",
+    "title": "Number of Tables",
+    "command": "fetch",
+    "type": "stat",
+    "unit": "",
+    "metric": "molt_fetch_num_tables",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_fetch_num_tables"
+    ]
+  },
+  {
+    "id": "8",
+    "title": "Number of Data Errors",
+    "command": "fetch",
+    "type": "stat",
+    "unit": "",
+    "metric": "molt_fetch_num_data_errors",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_fetch_num_data_errors{schema=~\"$schema\",table=~\"$table\"}"
+    ]
+  },
+  {
+    "id": "9",
+    "title": "Export Duration (ms)",
+    "command": "fetch",
+    "type": "stat",
+    "unit": "ms",
+    "metric": "molt_fetch_table_export_duration_ms",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_fetch_table_export_duration_ms{schema=~\"$schema\",table=~\"$table\"}"
+    ]
+  },
+  {
+    "id": "5",
+    "title": "Import Duration (ms)",
+    "command": "fetch",
+    "type": "stat",
+    "unit": "ms",
+    "metric": "molt_fetch_table_import_duration_ms",
+    "kind": "gauge",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "molt_fetch_table_import_duration_ms{schema=~\"$schema\",table=~\"$table\"}"
+    ]
+  },
+  {
+    "id": "13",
+    "title": "Number of Rows Exported Over Time",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "",
+    "metric": "molt_fetch_rows_exported",
+    "kind": "gauge",
+    "group_by": [
+      "schema",
+      "table"
+    ],
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "sum by (schema, table) (molt_fetch_rows_exported{schema=~\"$schema\",table=~\"$table\"})"
+    ]
+  },
+  {
+    "id": "11",
+    "title": "Rate of Rows Exported Over Time (rows / sec)",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "rows/s",
+    "metric": "molt_fetch_rows_exported",
+    "kind": "rate",
+    "group_by": [
+      "schema",
+      "table"
+    ],
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "sum by (schema, table) (rate(molt_fetch_rows_exported{schema=~\"$schema\",table=~\"$table\"}[1m]))"
+    ]
+  },
+  {
+    "id": "3",
+    "title": "Number of Rows Imported Over Time",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "",
+    "metric": "molt_fetch_rows_imported",
+    "kind": "gauge",
+    "group_by": [
+      "schema",
+      "table"
+    ],
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "sum by (schema, table) (molt_fetch_rows_imported{schema=~\"$schema\",table=~\"$table\"})"
+    ]
+  },
+  {
+    "id": "12",
+    "title": "Rate of Rows Imported Over Time (rows / sec)",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "rows/s",
+    "metric": "molt_fetch_rows_imported",
+    "kind": "rate",
+    "group_by": [
+      "schema",
+      "table"
+    ],
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "sum by (schema, table) (rate(molt_fetch_rows_imported{schema=~\"$schema\",table=~\"$table\"}[1m]))"
+    ]
+  },
+  {
+    "id": "24",
+    "title": "Source Query Duration (ms)",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "ms",
+    "metric": "molt_fetch_source_query_duration_ms_bucket",
+    "kind": "histogram",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "histogram_quantile(0.50, rate(molt_fetch_source_query_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.75, rate(molt_fetch_source_query_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.90, rate(molt_fetch_source_query_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.99, rate(molt_fetch_source_query_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))"
+    ]
+  },
+  {
+    "id": "27",
+    "title": "Convert Shard Data to Datums Duration (ms)",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "ms",
+    "metric": "molt_fetch_convert_shard_data_to_datums_duration_ms_bucket",
+    "kind": "histogram",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "histogram_quantile(0.50, rate(molt_fetch_convert_shard_data_to_datums_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.75, rate(molt_fetch_convert_shard_data_to_datums_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.90, rate(molt_fetch_convert_shard_data_to_datums_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.99, rate(molt_fetch_convert_shard_data_to_datums_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))"
+    ]
+  },
+  {
+    "id": "28",
+    "title": "Write Datums to Writer Pipe Duration (ms)",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "ms",
+    "metric": "molt_fetch_write_datums_to_writer_pipe_duration_ms_bucket",
+    "kind": "histogram",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "histogram_quantile(0.50, rate(molt_fetch_write_datums_to_writer_pipe_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.75, rate(molt_fetch_write_datums_to_writer_pipe_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.90, rate(molt_fetch_write_datums_to_writer_pipe_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.99, rate(molt_fetch_write_datums_to_writer_pipe_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))"
+    ]
+  },
+  {
+    "id": "25",
+    "title": "Prepare CSV File Duration (ms)",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "ms",
+    "metric": "molt_fetch_prepare_csv_file_duration_ms_bucket",
+    "kind": "histogram",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "histogram_quantile(0.50, rate(molt_fetch_prepare_csv_file_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.75, rate(molt_fetch_prepare_csv_file_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.90, rate(molt_fetch_prepare_csv_file_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.99, rate(molt_fetch_prepare_csv_file_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))"
+    ]
+  },
+  {
+    "id": "26",
+    "title": "CSV Upload Duration (ms)",
+    "command": "fetch",
+    "type": "timeseries",
+    "unit": "ms",
+    "metric": "molt_fetch_csv_upload_duration_ms_bucket",
+    "kind": "histogram",
+    "group_by": null,
+    "category": null,
+    "exclude_overall": false,
+    "queries": [
+      "histogram_quantile(0.50, rate(molt_fetch_csv_upload_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.75, rate(molt_fetch_csv_upload_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.90, rate(molt_fetch_csv_upload_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))",
+      "histogram_quantile(0.99, rate(molt_fetch_csv_upload_duration_ms_bucket{schema=~\"$schema\",table=~\"$table\",shard=~\"$shard\"}[5m]))"
+    ]
+  }
+]

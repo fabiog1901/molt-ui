@@ -179,6 +179,20 @@ def create_app(service: MoltService | None = None) -> FastAPI:
     def molt_help() -> CommandResult:
         return service.help()
 
+    @app.get('/api/jobs/{run_id}/metrics')
+    def run_metrics(run_id: str, after: float = Query(default=0, ge=0, allow_inf_nan=False)) -> dict:
+        try:
+            return service.get_run_metrics(run_id, after)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail='Run not found.') from exc
+
+    @app.get('/api/history/{record_id}/metrics')
+    def history_metrics(record_id: str, after: float = Query(default=0, ge=0, allow_inf_nan=False)) -> dict:
+        try:
+            return service.get_history_metrics(record_id, after)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail='Run record not found.') from exc
+
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(WEBAPP_DIRECTORY / "index.html")

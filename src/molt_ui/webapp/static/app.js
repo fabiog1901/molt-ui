@@ -17,6 +17,7 @@ document.addEventListener('alpine:init', () => {
     historyOutputCleared: false, historyOutputRequest: 0,
     sourceKind: '',
     previousLogLevel: 'info',
+    overviewView: 'tables',
 
     get reviewingHistory() { return Boolean(this.selectedRecord); },
     get displayedAggregation() { return this.showingSavedOutput ? (this.historyOutput?.aggregation || {totals: {}, tables: []}) : this.aggregation; },

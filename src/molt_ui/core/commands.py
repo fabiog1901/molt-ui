@@ -71,6 +71,10 @@ def build_plan(
             env_name = option.environment_variable
             if env_name and env_name not in overrides and environment.get(env_name):
                 overrides[env_name] = environment[env_name]
+        if (command in {'fetch', 'verify'} and 'metrics-scrape-interval' in known
+                and 'metrics-scrape-interval' not in values):
+            # Keep the final metrics endpoint alive for our last background scrape.
+            arguments.append('--metrics-scrape-interval=2s')
     argv = (executable, *arguments)
     return CommandPlan(
         command=command,

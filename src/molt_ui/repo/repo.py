@@ -13,6 +13,7 @@ from threading import Lock
 from uuid import uuid4
 
 from molt_ui.core.logs import parse_line
+from molt_ui.core.metrics import SAMPLE_LIMIT
 from molt_ui.core.models import CatalogRecord, CommandCatalog, HistoryOutput, OutputEvent, RunRecord
 from .output import iter_log_file, read_log_file
 
@@ -73,6 +74,17 @@ class Repo:
             )""")
             if "run_output" not in tables:
                 changes.append("created run_output")
+            self._connection.execute("""CREATE TABLE IF NOT EXISTS run_metrics_state (
+                run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+                payload TEXT NOT NULL
+            )""")
+            self._connection.execute("""CREATE TABLE IF NOT EXISTS run_metrics (
+                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                timestamp REAL NOT NULL, payload TEXT NOT NULL,
+                PRIMARY KEY (run_id, timestamp)
+            )""")
+            if "run_metrics" not in tables:
+                changes.append("created run_metrics")
             columns = {
                 row["name"] for row in self._connection.execute("PRAGMA table_info(command_catalog)")
             }
@@ -286,6 +298,37 @@ class Repo:
             source="captured", total=total, events=events,
             next_before=events[0].sequence if events and events[0].sequence > 1 else None,
         )
+
+    def save_metrics(self, record_id: str, state: dict, frame: dict | None) -> None:
+        with self._access(write=True):
+            self._connection.execute(
+                """INSERT INTO run_metrics_state(run_id, payload) VALUES (?, ?)
+                   ON CONFLICT(run_id) DO UPDATE SET payload=excluded.payload""",
+                (record_id, json.dumps(state, allow_nan=False)),
+            )
+            if frame is not None:
+                self._connection.execute(
+                    "INSERT OR REPLACE INTO run_metrics(run_id, timestamp, payload) VALUES (?, ?, ?)",
+                    (record_id, frame['timestamp'], json.dumps(frame, allow_nan=False)),
+                )
+                self._connection.execute(
+                    """DELETE FROM run_metrics WHERE run_id=? AND timestamp < (
+                       SELECT timestamp FROM run_metrics WHERE run_id=?
+                       ORDER BY timestamp DESC LIMIT 1 OFFSET ?)""",
+                    (record_id, record_id, SAMPLE_LIMIT - 1),
+                )
+
+    def get_metrics(self, record_id: str, after: float = 0) -> tuple[dict | None, list[dict]]:
+        with self._access():
+            state = self._connection.execute(
+                "SELECT payload FROM run_metrics_state WHERE run_id=?", (record_id,)
+            ).fetchone()
+            frames = self._connection.execute(
+                "SELECT payload FROM run_metrics WHERE run_id=? AND timestamp>? ORDER BY timestamp",
+                (record_id, after),
+            ).fetchall()
+        return (json.loads(state['payload']) if state else None,
+                [json.loads(row['payload']) for row in frames])
 
     def delete_run(self, record_id: str) -> int:
         with self._access(write=True):

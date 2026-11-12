@@ -18,10 +18,11 @@ def test_credentials_and_literal_arguments_are_preserved(command_catalog):
     assert plan.argv == (
         "/path with spaces/molt", "fetch", "--direct-copy=true",
         "--table-filter=users; echo test", "--table-concurrency=2",
+        "--metrics-scrape-interval=2s",
     )
     assert plan.environment["MOLT_SOURCE"] == options["source"]
     assert plan.options == options
-    assert shlex.split(plan.invocation)[-2] == "--table-filter=users; echo test"
+    assert "--table-filter=users; echo test" in shlex.split(plan.invocation)
 
 
 @pytest.mark.parametrize("options", [
@@ -42,7 +43,7 @@ def test_command_semantics_are_forwarded_to_molt_without_pruning(command_catalog
 
 
 def test_missing_required_parameters_are_left_to_molt(command_catalog):
-    assert build_command("fetch", {}, environment={}, catalog=command_catalog) == (["fetch"], {})
+    assert build_command("fetch", {}, environment={}, catalog=command_catalog) == (["fetch", "--metrics-scrape-interval=2s"], {})
     assert build_command("convert-mysql", {}, environment={}, catalog=command_catalog) == (["convert", "mysql"], {})
 
 
@@ -51,11 +52,20 @@ def test_inherited_environment_and_explicit_overrides_are_recorded(command_catal
         "MOLT_SOURCE": "inherited", "MOLT_TARGET": "target", "UNRELATED": "ignored",
     }, catalog=command_catalog)
     assert plan.environment == {"MOLT_SOURCE": "explicit", "MOLT_TARGET": "target"}
-    assert build_command("verify", {"rows": False}, environment={}, catalog=command_catalog)[0] == ["verify", "--rows=false"]
+    assert build_command("verify", {"rows": False}, environment={}, catalog=command_catalog)[0] == ["verify", "--rows=false", "--metrics-scrape-interval=2s"]
 
 
 def test_help_ignores_configuration_and_does_not_require_connections(command_catalog):
     assert build_command("fetch", {"unknown": "ignored"}, help_only=True, catalog=command_catalog) == (["fetch", "--help"], {})
+
+
+def test_metrics_exit_delay_is_visible_and_respects_explicit_configuration(command_catalog):
+    default = build_plan('molt', 'fetch', {}, catalog=command_catalog)
+    assert '--metrics-scrape-interval=2s' in default.argv
+    assert '--metrics-scrape-interval=2s' in default.invocation
+    explicit = build_plan('molt', 'verify', {'metrics-scrape-interval': '10s'}, catalog=command_catalog)
+    assert '--metrics-scrape-interval=10s' in explicit.argv
+    assert '--metrics-scrape-interval=2s' not in explicit.argv
 
 
 def test_unknown_catalog_entries_produce_a_drift_error(command_catalog):

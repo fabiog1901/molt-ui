@@ -11,6 +11,8 @@ interface that suits your workflow.
 - Run Molt commands through a web app or terminal UI.
 - Configure commands with a guided, tabbed wizard.
 - View live logs with per-table statistics and status.
+- View live uPlot charts based on Molt's Grafana dashboard, with schema, table,
+  and shard filters.
 - Resize, minimize, or maximize the output pane.
 - Save job history locally in SQLite.
 - Review past jobs and reconstruct their table summaries.
@@ -72,6 +74,27 @@ latest error diagnostic saved in history. On startup, unfinished jobs whose app
 process is no longer running are marked **interrupted**, with an unknown outcome.
 Recovery checks local process ownership on POSIX systems; jobs owned by another
 host or an owner that cannot be checked are left unchanged.
+
+Select **Charts** beside **Table progress** to view fetch or verify metrics.
+The app collects Molt's Prometheus endpoint every two seconds, even when the
+Charts view is closed, and saves the latest 900 samples (about 30 minutes) per
+job in SQLite. Saved jobs retain their charts across app restarts. Imported logs
+and jobs run before metrics collection was added have no metric samples.
+
+Charts cover the 22 data panels in `molt/grafana_dashboard.json`: fetch durations,
+table and error counts, exported/imported rows and rates, five latency histograms
+with p50/p75/p90/p99, and verify counts, duration, rows, and row statuses. The
+bundled definitions retain the original queries for reference. Rates and histogram
+percentiles are local estimates over observed samples, rather than exact PromQL
+results. Missing metrics remain empty; some panels only apply to particular
+migration modes. Collection is capped at 2,000 raw series, and each chart displays
+up to 24 series at once; use filters to narrow larger inventories.
+
+No Prometheus or Grafana server is required. The app uses the configured
+`--metrics-listen-addr` (default `127.0.0.1:3030`), mapping wildcard listeners to
+loopback when scraping. It defaults `--metrics-scrape-interval` to `2s` so Molt
+keeps its final metrics available before exiting; an explicit value takes
+precedence. uPlot 1.6.32 and its MIT license are bundled locally.
 
 ---
 
