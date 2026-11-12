@@ -20,12 +20,12 @@ interface that suits your workflow.
 ## Get started
 
 You'll need **Python 3.14+**, **[pipx](https://pipx.pypa.io/stable/how-to/install-pipx.html)**,
-and the **`molt` executable**.
+**Git**, and the **`molt` executable**.
 
-From this checkout's project directory, install Molt UI:
+Install Molt UI directly from GitHub:
 
 ```sh
-pipx install --python python3.14 .
+pipx install --python python3.14 git+https://github.com/fabiog1901/molt-ui.git
 pipx ensurepath
 ```
 
