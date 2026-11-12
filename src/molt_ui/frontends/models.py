@@ -191,7 +191,7 @@ class CommandOption(FrontendModel):
             description=option.description,
             default=default,
             advanced=name not in COMMON,
-            secret=name in {"source", "target", "source-cdb", "url", "password"},
+            secret=name in {"source-cdb", "url", "password"},
             required=(name == "schema" or (
                 command in {"fetch", "verify"} and name in {"source", "target"} and not from_environment
             )),

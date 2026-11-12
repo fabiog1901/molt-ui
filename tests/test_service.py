@@ -195,3 +195,134 @@ def test_service_instances_keep_separate_injected_catalogs():
     assert second.preview("future", {"connection": "two"}).environment == {"MOLT_SECOND": "two"}
     first.close()
     second.close()
+
+
+def test_rerun_after_restart_preserves_saved_arguments_and_connections(tmp_path):
+    database = str(tmp_path / "rerun.sqlite3")
+    repo = Repo(database)
+    code = "import os,sys; print(os.environ['MOLT_SOURCE']); print(sys.argv[1])"
+    literal = "--table-filter=users; echo literal"
+    original = repo.create_run(
+        "fetch", origin="command", invocation="display text is not executed",
+        argv=("/old/location/molt", "-c", code, literal),
+        environment={"MOLT_SOURCE": "saved-connection"},
+        options={"direct-copy": False, "table-filter": literal},
+    )
+    original = repo.update_run(original.id, status="succeeded", returncode=0, summary={"exported": 200})
+    repo.close()
+    service = MoltService(
+        MoltProcess(sys.executable, environment={"MOLT_SOURCE": "changed-connection"}),
+        Repo(database), environment={"MOLT_SOURCE": "changed-connection"},
+    )
+    state = wait_for(service, service.rerun(original.id))
+    assert state.status == "succeeded"
+    assert state.record.id != original.id
+    assert state.record.argv == [sys.executable, *original.argv[1:]]
+    assert state.record.environment == original.environment
+    assert state.record.options == original.options
+    assert "saved-connection" in [event.text for event in state.events]
+    assert literal in [event.text for event in state.events]
+    assert service.get_history_record(original.id) == original
+    assert len(service.list_history()) == 2
+    service.close()
+
+
+def test_rerun_respects_single_active_job_and_does_not_create_extra_records():
+    repo = Repo()
+    saved = repo.create_run("fetch", origin="command", argv=(sys.executable, "--help"))
+    service = MoltService(MoltProcess(sys.executable), repo)
+    plan = CommandPlan(command="fetch", argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+                       environment={}, options={}, invocation="test process")
+    with patch.object(service, "preview", return_value=plan):
+        service.start("fetch", {})
+    before = len(service.list_history())
+    with pytest.raises(MoltError, match="already running"):
+        service.rerun(saved.id)
+    assert len(service.list_history()) == before
+    service.close()
+
+
+def test_failed_rerun_is_a_new_failed_attempt_and_preserves_original():
+    repo = Repo()
+    original = repo.create_run("fetch", origin="command", argv=("molt", "fetch"))
+    original = repo.update_run(original.id, status="succeeded", returncode=0)
+    service = MoltService(MoltProcess("/missing/molt"), repo)
+    with patch("molt_ui.molt_process.subprocess.Popen", side_effect=FileNotFoundError("missing")):
+        with pytest.raises(MoltError):
+            service.rerun(original.id)
+    records = service.list_history()
+    assert len(records) == 2
+    assert next(record for record in records if record.id != original.id).status == "launch_failed"
+    assert service.get_history_record(original.id) == original
+    service.close()
+
+
+@pytest.mark.parametrize("origin, argv", [("import", ()), ("command", ())])
+def test_history_without_an_executable_command_cannot_be_rerun(origin, argv):
+    repo = Repo()
+    saved = repo.create_run("fetch", origin=origin, argv=argv)
+    service = MoltService(MoltProcess(sys.executable), repo)
+    with patch("molt_ui.molt_process.subprocess.Popen") as spawn:
+        with pytest.raises(ValueError, match="no saved command"):
+            service.rerun(saved.id)
+        spawn.assert_not_called()
+    assert len(service.list_history()) == 1
+    service.close()
+
+
+def test_clear_history_keeps_current_output_but_detaches_deleted_record():
+    service = MoltService(MoltProcess(sys.executable), Repo())
+    original = service.import_log(StringIO("existing output\n"))
+    assert service.clear_history() == 1
+    assert service.list_history() == []
+    current = service.get_run(original.id)
+    assert current.events == original.events
+    assert current.aggregation == original.aggregation
+    assert current.record is None
+    with pytest.raises(KeyError):
+        service.rerun(original.record.id)
+    service.close()
+
+
+def test_clear_history_is_blocked_while_a_job_is_running():
+    repo = Repo()
+    service = MoltService(MoltProcess(sys.executable), repo)
+    plan = CommandPlan(command="fetch", argv=(sys.executable, "-c", "import time; time.sleep(30)"),
+                       environment={}, options={}, invocation="test process")
+    with patch.object(service, "preview", return_value=plan):
+        job = service.start("fetch", {})
+    with pytest.raises(MoltError, match="already running"):
+        service.clear_history()
+    with pytest.raises(MoltError, match="already running"):
+        service.delete_history_record(job.record.id)
+    assert len(service.list_history()) == 1
+    assert service.get_run(job.id).record is not None
+    service.close()
+
+
+def test_clear_history_storage_failure_leaves_records_and_current_run_intact():
+    from molt_ui.repo.repo import RepoError
+
+    repo = Repo()
+    service = MoltService(MoltProcess(sys.executable), repo)
+    original = service.import_log(StringIO("existing output\n"))
+    with patch.object(repo, "clear_runs", side_effect=RepoError("database locked")):
+        with pytest.raises(MoltError, match="database locked"):
+            service.clear_history()
+    assert len(service.list_history()) == 1
+    assert service.get_run(original.id).record == original.record
+    service.close()
+
+
+def test_single_history_deletion_storage_failure_preserves_record():
+    from molt_ui.repo.repo import RepoError
+
+    repo = Repo()
+    service = MoltService(MoltProcess(sys.executable), repo)
+    original = service.import_log(StringIO("existing output\n"))
+    with patch.object(repo, "delete_run", side_effect=RepoError("database locked")):
+        with pytest.raises(MoltError, match="database locked"):
+            service.delete_history_record(original.record.id)
+    assert service.get_history_record(original.record.id) == original.record
+    assert service.get_run(original.id).record == original.record
+    service.close()

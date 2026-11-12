@@ -270,3 +270,78 @@ def test_incompatible_modal_catalog_is_reported_as_an_actionable_error(command_c
         assert response.status_code == 503
         assert "no longer contains --source" in response.json()["detail"]
         assert client.get("/").status_code == 200
+
+
+def test_history_rerun_endpoint_starts_a_new_job_and_retains_the_original():
+    import sys
+    import time
+
+    repo = Repo()
+    original = repo.create_run("fetch", origin="help", argv=("/old/molt", "--help"),
+                               invocation="/old/molt --help")
+    original = repo.update_run(original.id, status="succeeded", returncode=0)
+    imported = repo.create_run("fetch", origin="import")
+    service = MoltService(MoltProcess(sys.executable), repo)
+    with TestClient(create_app(service)) as client:
+        assert client.post("/api/history/missing/rerun").status_code == 404
+        assert client.post(f"/api/history/{imported.id}/rerun").status_code == 422
+        response = client.post(f"/api/history/{original.id}/rerun")
+        assert response.status_code == 201
+        state = response.json()
+        for _ in range(100):
+            state = client.get(f"/api/jobs/{state['id']}").json()
+            if state["status"] != "running":
+                break
+            time.sleep(.01)
+        assert state["status"] == "succeeded"
+        assert state["record"]["id"] != original.id
+        assert state["record"]["origin"] == "help"
+        assert state["record"]["argv"] == [sys.executable, "--help"]
+        assert client.get(f"/api/history/{original.id}").json() == original.model_dump(mode="json")
+        assert len(client.get("/api/history").json()) == 3
+
+
+def test_clear_history_endpoint_deletes_records_and_preserves_current_output(command_catalog):
+    from io import StringIO
+
+    repo = Repo()
+    catalog = repo.save_catalog("v1", command_catalog)
+    service = MoltService(MoltProcess("/unused"), repo, catalog=command_catalog)
+    original = service.import_log(StringIO("saved output\n"))
+    with TestClient(create_app(service)) as client:
+        response = client.delete("/api/history")
+        assert response.status_code == 200
+        assert response.json() == {"deleted": 1}
+        assert client.get("/api/history").json() == []
+        assert client.get(f"/api/history/{original.record.id}").status_code == 404
+        current = client.get(f"/api/jobs/{original.id}").json()
+        assert current["events"][0]["text"] == "saved output"
+        assert current["record"] is None
+        assert repo.get_catalog() == catalog
+        assert client.delete("/api/history").json() == {"deleted": 0}
+
+
+def test_delete_single_history_record_cascades_output_and_preserves_other_records(command_catalog, tmp_path):
+    from io import StringIO
+
+    repo = Repo(str(tmp_path / "history.sqlite3"))
+    catalog = repo.save_catalog("v1", command_catalog)
+    service = MoltService(MoltProcess("/unused"), repo, catalog=command_catalog)
+    first = service.import_log(StringIO("first saved output\n"))
+    second = service.import_log(StringIO("second saved output\n"))
+    logfile = tmp_path / "saved.log"
+    logfile.write_text("keep this log file\n")
+    repo.update_run(second.record.id, status="imported", log_file=str(logfile))
+    with TestClient(create_app(service)) as client:
+        assert client.delete(f"/api/history/{first.record.id}").json() == {"deleted": 1}
+        assert client.get(f"/api/history/{first.record.id}").status_code == 404
+        assert client.get(f"/api/history/{first.record.id}/output").status_code == 404
+        assert repo._connection.execute("SELECT COUNT(*) FROM run_output WHERE run_id=?", (first.record.id,)).fetchone()[0] == 0
+        assert client.get(f"/api/jobs/{second.id}").json()["record"]["id"] == second.record.id
+        assert [record["id"] for record in client.get("/api/history").json()] == [second.record.id]
+        assert client.delete(f"/api/history/{second.record.id}").json() == {"deleted": 1}
+        assert client.get(f"/api/jobs/{second.id}").json()["record"] is None
+        assert client.delete(f"/api/history/{second.record.id}").status_code == 404
+        assert client.get("/api/history").json() == []
+        assert logfile.read_text() == "keep this log file\n"
+        assert repo.get_catalog() == catalog

@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from collections.abc import Iterable
 import json
 import logging
 import os
@@ -10,7 +11,9 @@ import sqlite3
 from threading import Lock
 from uuid import uuid4
 
-from molt_ui.core.models import CatalogRecord, CommandCatalog, RunRecord
+from molt_ui.core.logs import parse_line
+from molt_ui.core.models import CatalogRecord, CommandCatalog, HistoryOutput, OutputEvent, RunRecord
+from .output import read_log_file
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,7 @@ class Repo:
         self._closed = False
         self._connection = sqlite3.connect(path, check_same_thread=False, timeout=10)
         self._connection.row_factory = sqlite3.Row
+        self._connection.execute("PRAGMA foreign_keys = ON")
         with self._access(write=True):
             self._connection.execute("BEGIN")
             tables = {
@@ -51,8 +55,19 @@ class Repo:
                 id TEXT PRIMARY KEY, command TEXT NOT NULL, origin TEXT NOT NULL,
                 invocation TEXT, argv TEXT NOT NULL, environment TEXT NOT NULL, options TEXT NOT NULL,
                 started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL,
-                returncode INTEGER, summary TEXT, error TEXT
+                returncode INTEGER, summary TEXT, error TEXT, log_file TEXT
             )""")
+            run_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(runs)")}
+            if "log_file" not in run_columns:
+                self._connection.execute("ALTER TABLE runs ADD COLUMN log_file TEXT")
+                changes.append("added runs.log_file")
+            self._connection.execute("""CREATE TABLE IF NOT EXISTS run_output (
+                run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                sequence INTEGER NOT NULL, stream TEXT NOT NULL, text TEXT NOT NULL,
+                PRIMARY KEY (run_id, sequence)
+            )""")
+            if "run_output" not in tables:
+                changes.append("created run_output")
             columns = {
                 row["name"] for row in self._connection.execute("PRAGMA table_info(command_catalog)")
             }
@@ -135,7 +150,9 @@ class Repo:
         )
         with self._access(write=True):
             self._connection.execute(
-                "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO runs (id, command, origin, invocation, argv, environment, options,
+                   started_at, finished_at, status, returncode, summary, error)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     record.id,
                     command,
@@ -162,12 +179,22 @@ class Repo:
         returncode: int | None = None,
         summary: dict | None = None,
         error: str | None = None,
+        log_file: str | None = None,
+        output: Iterable[OutputEvent] | None = None,
     ) -> RunRecord:
         finished = None if status in {"running", "starting"} else timestamp()
         with self._access(write=True):
+            if output is not None or log_file is not None:
+                self._connection.execute("DELETE FROM run_output WHERE run_id=?", (record_id,))
+            if output is not None and log_file is None:
+                self._connection.executemany(
+                    "INSERT INTO run_output (run_id, sequence, stream, text) VALUES (?,?,?,?)",
+                    ((record_id, event.sequence, event.stream, event.text) for event in output),
+                )
             self._connection.execute(
-                "UPDATE runs SET status=?, returncode=?, finished_at=?, summary=?, error=? WHERE id=?",
-                (status, returncode, finished, json.dumps(summary), error, record_id),
+                """UPDATE runs SET status=?, returncode=?, finished_at=?, summary=?, error=?,
+                   log_file=COALESCE(?, log_file) WHERE id=?""",
+                (status, returncode, finished, json.dumps(summary), error, log_file, record_id),
             )
         return self.get_run(record_id)
 
@@ -186,6 +213,42 @@ class Repo:
                 "SELECT * FROM runs ORDER BY started_at DESC LIMIT ?", (limit,)
             ).fetchall()
             return [self._decode(row) for row in rows]
+
+    def get_run_output(self, record_id: str, *, before: int | None = None, limit: int = 2000) -> HistoryOutput:
+        record = self.get_run(record_id)
+        if record.log_file:
+            try:
+                return read_log_file(record.log_file, before=before, limit=limit)
+            except OSError as exc:
+                raise RepoError(f"Could not open saved log file {record.log_file}: {exc.strerror}") from exc
+        with self._access():
+            total = self._connection.execute(
+                "SELECT COUNT(*) FROM run_output WHERE run_id=?", (record_id,)
+            ).fetchone()[0]
+            rows = self._connection.execute(
+                """SELECT sequence, stream, text FROM run_output WHERE run_id=?
+                   AND (? IS NULL OR sequence < ?) ORDER BY sequence DESC LIMIT ?""",
+                (record_id, before, before, limit),
+            ).fetchall()
+        events = tuple(OutputEvent(**dict(row), data=parse_line(row["text"])) for row in reversed(rows))
+        return HistoryOutput(
+            source="captured", total=total, events=events,
+            next_before=events[0].sequence if events and events[0].sequence > 1 else None,
+        )
+
+    def delete_run(self, record_id: str) -> int:
+        with self._access(write=True):
+            deleted = self._connection.execute("DELETE FROM runs WHERE id=?", (record_id,)).rowcount
+            if not deleted:
+                raise KeyError(record_id)
+        logger.info("Deleted saved run %s", record_id)
+        return deleted
+
+    def clear_runs(self) -> int:
+        with self._access(write=True):
+            deleted = self._connection.execute("DELETE FROM runs").rowcount
+        logger.info("Cleared saved run history (%d records)", deleted)
+        return deleted
 
     def get_run(self, record_id: str) -> RunRecord:
         with self._access():

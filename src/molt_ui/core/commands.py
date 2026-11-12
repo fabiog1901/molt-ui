@@ -5,7 +5,28 @@ import os
 import shlex
 
 from .catalog import command_spec
-from .models import CommandCatalog, CommandPlan
+from .models import CommandCatalog, CommandPlan, RunRecord
+
+
+def _invocation(argv: tuple[str, ...], environment: Mapping[str, str]) -> str:
+    assignments = [f"{name}={shlex.quote(value)}" for name, value in environment.items()]
+    return " ".join([*assignments, shlex.join(argv)])
+
+
+def replay_plan(executable: str, record: RunRecord) -> CommandPlan:
+    """Reuse recorded argv and connection overrides with the configured binary."""
+    if record.origin not in {"command", "help"} or len(record.argv) < 2:
+        raise ValueError("This history record has no saved command to re-run.")
+    argv = (executable, *record.argv[1:])
+    if any("\x00" in argument for argument in argv):
+        raise ValueError("The saved command contains a null character and cannot be re-run.")
+    return CommandPlan(
+        command=record.command,
+        argv=argv,
+        environment=dict(record.environment),
+        options=dict(record.options),
+        invocation=_invocation(argv, record.environment),
+    )
 
 
 def build_plan(
@@ -51,13 +72,12 @@ def build_plan(
             if env_name and env_name not in overrides and environment.get(env_name):
                 overrides[env_name] = environment[env_name]
     argv = (executable, *arguments)
-    assignments = [f"{name}={shlex.quote(value)}" for name, value in overrides.items()]
     return CommandPlan(
         command=command,
         argv=argv,
         environment=overrides,
         options=values,
-        invocation=" ".join([*assignments, shlex.join(argv)]),
+        invocation=_invocation(argv, overrides),
     )
 
 

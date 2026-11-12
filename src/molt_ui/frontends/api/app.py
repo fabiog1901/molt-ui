@@ -14,6 +14,7 @@ from molt_ui.core.errors import MoltError
 from molt_ui.core.models import (
     CommandPlan,
     CommandResult,
+    HistoryOutput,
     RunRecord,
     RunSnapshot,
     TableLogs,
@@ -68,6 +69,17 @@ def create_app(service: MoltService | None = None) -> FastAPI:
     def run_history(limit: int = Query(default=50, ge=1, le=200)) -> list[RunRecord]:
         return service.list_history(limit)
 
+    @app.delete("/api/history")
+    def clear_history() -> dict[str, int]:
+        return {"deleted": service.clear_history()}
+
+    @app.delete("/api/history/{record_id}")
+    def delete_history_record(record_id: str) -> dict[str, int]:
+        try:
+            return {"deleted": service.delete_history_record(record_id)}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Run record not found.") from exc
+
     @app.get("/api/history/{record_id}")
     def history_record(record_id: str) -> RunRecord:
         try:
@@ -76,6 +88,26 @@ def create_app(service: MoltService | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=404, detail="Run record not found."
             ) from exc
+
+    @app.get("/api/history/{record_id}/output")
+    def history_output(
+        record_id: str,
+        before: int | None = Query(default=None, ge=1),
+        limit: int = Query(default=2000, ge=1, le=2000),
+    ) -> HistoryOutput:
+        try:
+            return service.get_history_output(record_id, before=before, limit=limit)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Run record not found.") from exc
+
+    @app.post("/api/history/{record_id}/rerun", status_code=201)
+    def rerun_history_record(record_id: str) -> RunSnapshot:
+        try:
+            return service.rerun(record_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Run record not found.") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/jobs")
     def latest_run() -> RunSnapshot | None:

@@ -366,7 +366,10 @@ test('history loads at startup and remains independent of the current output', a
   assert.equal(app.reviewingHistory, true);
   assert.equal(app.job.id, current.id);
   app.selectedRecord = app.job.record;
+  assert.equal(app.reviewingHistory, true);
+  app.showCurrentSession();
   assert.equal(app.reviewingHistory, false);
+  assert.equal(app.job.id, current.id);
 });
 
 test('manual output scrolling pauses follow and resuming follow reaches the latest line', () => {
@@ -420,8 +423,14 @@ test('log emoji cover severities, aliases, and unstructured output', () => {
     assert.equal(app.logEmoji({ data: { level } }), emoji);
     assert.equal(app.logEmoji({ data: { level: level.toUpperCase() } }), emoji);
   }
-  assert.equal(app.logEmoji({ stream: 'stdout' }), '📄');
-  assert.equal(app.logEmoji({ stream: 'stderr' }), '❌');
+  for (const stream of ['stdout', 'stderr', 'log']) {
+    for (const data of [null, {}, { message: 'No level' }]) {
+      assert.equal(app.showLogEmoji({ stream, data }), false);
+      assert.equal(app.logEmoji({ stream, data }), '');
+    }
+    assert.equal(app.showLogEmoji({ stream, data: { level: 'warn' } }), true);
+    assert.equal(app.logEmoji({ stream, data: { level: 'warn' } }), '⚠️');
+  }
   assert.equal(app.logEmoji({ data: { level: 'custom' } }), '🔹');
 });
 
@@ -445,9 +454,331 @@ test('formatted fields preserve complex values and plain output without textual 
 
 test('formatted UTC log timestamps use a space and second precision without changing the time', () => {
   const { app } = createApp([]);
-  for (const time of ['2026-09-22T16:16:07Z', '2026-09-22T16:16:07.123Z']) {
+  for (const time of ['2026-09-22T16:16:07Z', '2026-09-22T16:16:07.123Z', '2026-09-22T16:16:07.123456+00:00']) {
     const event = { data: { time, level: 'info', message: 'Ready' } };
     assert.equal(app.formatEvent(event), '2026-09-22 16:16:07 Ready');
     assert.equal(event.data.time, time);
+    assert.equal(app.formatTimestamp(time), '2026-09-22 16:16:07');
   }
+});
+
+test('Connections tab shows source and target as text even with stale masking metadata', () => {
+  const { app } = createApp([]);
+  for (const name of ['source', 'target']) {
+    assert.equal(app.inputType({ name, secret: true }), 'text');
+    assert.equal(app.inputType({ name, secret: false }), 'text');
+  }
+  assert.equal(app.inputType({ name: 'password', secret: true }), 'password');
+});
+
+test('Re-run restores the modal and only starts a new job after review and Run', async () => {
+  const saved = { id: 'saved', command: 'fetch', origin: 'command',
+    argv: ['molt', 'fetch', '--direct-copy=false', '--logging=disabled'],
+    options: { 'direct-copy': false, logging: 'disabled' },
+    environment: { MOLT_SOURCE: 'mysql://saved/source', MOLT_TARGET: 'postgres://saved/target' } };
+  const state = { ...snapshot(), record: { id: 'new' } };
+  const { app, calls, scheduled } = createApp([{ body: { invocation: 'reviewed command' } }, { body: state }]);
+  app.commands = [{ id: 'fetch', arguments: ['fetch'], default_source_dialect: 'postgres', options: [
+    { name: 'source', kind: 'string', environment_variable: 'MOLT_SOURCE' },
+    { name: 'target', kind: 'string', environment_variable: 'MOLT_TARGET' },
+    { name: 'direct-copy', kind: 'bool' }, { name: 'logging', kind: 'string' },
+  ] }];
+  let opened = 0;
+  app.$refs = { wizard: { showModal: () => opened++, querySelector: () => null } };
+  app.$nextTick = callback => callback();
+  app.values = { source: 'changed', target: 'changed' };
+  app.selectedRecord = saved;
+  app.rerunJob(saved);
+  assert.equal(opened, 1);
+  assert.equal(calls.length, 0);
+  assert.equal(app.job, null);
+  assert.equal(app.values.source, 'mysql://saved/source');
+  assert.equal(app.values.target, 'postgres://saved/target');
+  assert.equal(app.values['direct-copy'], false);
+  assert.equal(app.values.logging, 'disabled');
+  assert.equal(app.sourceKind, 'mysql');
+  assert.equal(app.selectedRecord.id, 'saved');
+  app.setOption(app.definition.options[0], 'mysql://edited/source');
+  await app.goStep(app.reviewStep);
+  assert.equal(calls[0].path, '/api/command-preview');
+  assert.equal(app.job, null);
+  await app.start();
+  assert.equal(calls[1].path, '/api/jobs');
+  assert.equal(JSON.parse(calls[1].options.body).options.source, 'mysql://edited/source');
+  assert.equal(app.job.record.id, 'new');
+  assert.equal(scheduled(), 1);
+  assert.equal(saved.environment.MOLT_SOURCE, 'mysql://saved/source');
+});
+
+test('history rerun is unavailable for imports, missing argv, busy UI, or an active job', async () => {
+  const { app, calls } = createApp([]);
+  const saved = { id: 'saved', origin: 'command', argv: ['molt', 'fetch'] };
+  assert.equal(app.canRerun({ origin: 'import', argv: [] }), false);
+  assert.equal(app.canRerun({ origin: 'command', argv: [] }), false);
+  assert.equal(app.canRerun(saved), true);
+  app.busy = true;
+  await app.rerunJob(saved);
+  app.busy = false;
+  app.job = snapshot();
+  await app.rerunJob(saved);
+  assert.equal(calls.length, 0);
+});
+
+test('an unavailable saved command leaves the history selection and output unchanged', () => {
+  const saved = { id: 'saved', command: 'removed-command', origin: 'command', argv: ['molt', 'removed-command'] };
+  const { app, calls } = createApp([]);
+  app.selectedRecord = saved;
+  app.job = snapshot([], 'succeeded');
+  app.rerunJob(saved);
+  assert.match(app.error, /unavailable in the current Molt version/);
+  assert.equal(app.selectedRecord.id, 'saved');
+  assert.equal(app.job.status, 'succeeded');
+  assert.equal(calls.length, 0);
+});
+
+test('clear history deletes saved records without clearing the current logs or aggregates', async () => {
+  const record = { id: 'saved', origin: 'command', argv: ['molt', 'fetch'] };
+  const { app, calls } = createApp([{ body: { deleted: 1 } }]);
+  app.history = [record]; app.selectedRecord = record;
+  app.job = { ...snapshot([], 'succeeded'), record };
+  app.events = [{ sequence: 1, text: 'output' }];
+  app.aggregation = { totals: { exported: 200 }, tables: [] };
+  await app.clearHistory();
+  assert.equal(calls[0].path, '/api/history');
+  assert.equal(calls[0].options.method, 'DELETE');
+  assert.equal(app.history.length, 0);
+  assert.equal(app.selectedRecord, null);
+  assert.equal(app.job.record, null);
+  assert.equal(app.events[0].text, 'output');
+  assert.equal(app.totals.exported, 200);
+  assert.equal(app.historyBusy, false);
+  assert.equal(app.busy, false);
+});
+
+test('deleting the selected history item clears its view and preserves other items', async () => {
+  const { app, calls } = createApp([{ body: { deleted: 1 } }]);
+  const record = { id: 'selected' }, other = { id: 'other' };
+  app.history = [record, other]; app.selectedRecord = record;
+  app.job = { ...snapshot([], 'succeeded'), record };
+  app.events = [{ sequence: 1, text: 'deleted output' }];
+  app.historyOutput = { events: [{ sequence: 1, text: 'saved output' }] };
+  await app.deleteHistoryRecord(record);
+  assert.equal(calls[0].path, '/api/history/selected');
+  assert.equal(calls[0].options.method, 'DELETE');
+  assert.equal(app.history.length, 1);
+  assert.equal(app.history[0].id, 'other');
+  assert.equal(app.selectedRecord, null);
+  assert.equal(app.historyOutput, null);
+  assert.equal(app.job, null);
+  assert.equal(app.events.length, 0);
+  assert.equal(app.historyBusy, false);
+});
+
+test('deleting another history item preserves selected details and output', async () => {
+  const { app } = createApp([{ body: { deleted: 1 } }]);
+  const record = { id: 'remove' }, selected = { id: 'keep' };
+  app.history = [record, selected]; app.selectedRecord = selected;
+  app.historyOutput = { events: [{ sequence: 1, text: 'keep output' }] };
+  app.job = { ...snapshot([], 'succeeded'), record };
+  await app.deleteHistoryRecord(record);
+  assert.equal(app.selectedRecord.id, 'keep');
+  assert.equal(app.outputEvents[0].text, 'keep output');
+  assert.equal(app.job.record, null);
+});
+
+test('failed single history deletion preserves selection and displays the error', async () => {
+  const { app } = createApp([{ status: 503, body: { detail: 'Database unavailable' } }]);
+  const record = { id: 'keep' };
+  app.history = [record]; app.selectedRecord = record;
+  await app.deleteHistoryRecord(record);
+  assert.equal(app.history[0].id, 'keep');
+  assert.equal(app.selectedRecord.id, 'keep');
+  assert.equal(app.historyError, 'Database unavailable');
+  assert.equal(app.historyBusy, false);
+});
+
+test('single history deletion is blocked during active jobs and pending operations', async () => {
+  const { app, calls } = createApp([]);
+  const record = { id: 'keep' };
+  app.job = snapshot();
+  await app.deleteHistoryRecord(record);
+  app.job = null; app.busy = true;
+  await app.deleteHistoryRecord(record);
+  app.busy = false; app.historyBusy = true;
+  await app.deleteHistoryRecord(record);
+  app.historyBusy = false;
+  await app.deleteHistoryRecord(null);
+  assert.equal(calls.length, 0);
+});
+
+test('clear history is unavailable for active jobs, pending operations, or empty history', async () => {
+  const { app, calls } = createApp([]);
+  await app.clearHistory();
+  app.history = [{ id: 'saved' }];
+  app.job = snapshot();
+  await app.clearHistory();
+  app.job = null; app.historyBusy = true;
+  await app.clearHistory();
+  app.historyBusy = false; app.busy = true;
+  await app.clearHistory();
+  assert.equal(calls.length, 0);
+});
+
+test('failed history deletion preserves the selection and saved records', async () => {
+  const { app } = createApp([{ status: 503, body: { detail: 'Database unavailable' } }]);
+  const saved = { id: 'saved' };
+  app.history = [saved]; app.selectedRecord = saved;
+  await app.clearHistory();
+  assert.equal(app.history.length, 1);
+  assert.equal(app.selectedRecord.id, 'saved');
+  assert.equal(app.historyError, 'Database unavailable');
+  assert.equal(app.busy, false);
+});
+
+test('current session starts empty instead of restoring a completed or imported job', async () => {
+  for (const status of ['succeeded', 'failed', 'imported']) {
+    const previous = snapshot([{ sequence: 1, text: 'old output' }], status);
+    const { app } = createApp([{ body: catalog }, { body: previous }, { body: [{ id: 'saved' }] }]);
+    await app.init();
+    assert.equal(app.job, null);
+    assert.equal(app.events.length, 0);
+    assert.equal(app.aggregation.tables.length, 0);
+    assert.equal(app.selectedRecord, null);
+    assert.equal(app.history.length, 1);
+  }
+});
+
+test('returning to current session clears completed results while keeping saved history', () => {
+  const { app, calls } = createApp([]);
+  const saved = { id: 'saved', command: 'fetch' };
+  app.history = [saved];
+  app.applySnapshot({ ...snapshot([{ sequence: 1, text: 'old output' }], 'succeeded'), aggregation: { totals: { exported: 200 }, tables: [{ name: 'public.actor' }] } });
+  app.reviewRecord(saved);
+  app.showCurrentSession();
+  assert.equal(app.job, null);
+  assert.equal(app.events.length, 0);
+  assert.equal(app.cursor, 0);
+  assert.equal(app.aggregation.tables.length, 0);
+  assert.equal(app.selectedRecord, null);
+  assert.equal(app.history[0].id, 'saved');
+  assert.equal(calls.length, 1); // Selecting the record reads its saved output.
+});
+
+test('selecting history reads saved output without replacing live output or its cursor', async () => {
+  const page = { source: 'file', log_file: '/logs/previous.log', total: 2500, next_before: 501, events: [{ sequence: 501, stream: 'log', text: 'saved line' }] };
+  const { app, calls } = createApp([{ body: page }]);
+  app.applySnapshot({ ...snapshot([{ sequence: 100, text: 'live line' }]), record: { id: 'active' } });
+  await app.reviewRecord({ id: 'older', command: 'verify' });
+  assert.equal(calls[0].path, '/api/history/older/output');
+  assert.equal(app.outputEvents[0].text, 'saved line');
+  assert.equal(app.outputCursor, 2500);
+  assert.equal(app.cursor, 100);
+  app.applySnapshot({ ...snapshot([{ sequence: 101, text: 'new live line' }]), record: { id: 'active' } });
+  assert.equal(app.outputEvents[0].text, 'saved line');
+  app.clearOutput();
+  assert.equal(app.outputEvents.length, 0);
+  assert.equal(app.events.length, 2);
+  app.showCurrentSession();
+  assert.equal(app.outputEvents[1].text, 'new live line');
+});
+
+test('saved output pagination replaces the page and can return to the latest lines', async () => {
+  const older = { source: 'captured', total: 3000, next_before: null, events: [{ sequence: 1, text: 'first' }] };
+  const latest = { source: 'captured', total: 3000, next_before: 1001, events: [{ sequence: 3000, text: 'last' }] };
+  const { app, calls } = createApp([{ body: older }, { body: latest }]);
+  app.selectedRecord = { id: 'saved' };
+  await app.loadHistoryOutput(1001);
+  assert.equal(calls[0].path, '/api/history/saved/output?before=1001');
+  assert.equal(app.historyBefore, 1001);
+  assert.equal(app.outputEvents[0].text, 'first');
+  await app.loadHistoryOutput();
+  assert.equal(app.historyBefore, null);
+  assert.equal(app.outputEvents.length, 1);
+  assert.equal(app.outputEvents[0].text, 'last');
+});
+
+test('late history output responses cannot replace a newly selected record', async () => {
+  let resolveFirst;
+  const first = new Promise(resolve => { resolveFirst = resolve; });
+  const { app } = createApp([{ body: first }, { body: { source: 'captured', total: 1, events: [{ sequence: 1, text: 'second' }] } }]);
+  const pending = app.reviewRecord({ id: 'first' });
+  await app.reviewRecord({ id: 'second' });
+  resolveFirst({ source: 'captured', total: 1, events: [{ sequence: 1, text: 'first' }] });
+  await pending;
+  assert.equal(app.selectedRecord.id, 'second');
+  assert.equal(app.outputEvents[0].text, 'second');
+  assert.equal(app.historyOutputLoading, false);
+});
+
+test('missing log files show an error without presenting unrelated live output', async () => {
+  const { app } = createApp([{ status: 503, body: { detail: 'Could not open saved log file' } }]);
+  app.applySnapshot(snapshot([{ sequence: 1, text: 'live line' }]));
+  await app.reviewRecord({ id: 'previous' });
+  assert.equal(app.historyOutputError, 'Could not open saved log file');
+  assert.equal(app.outputEvents.length, 0);
+  assert.equal(app.events[0].text, 'live line');
+});
+
+test('the active record shows live output and switches to its saved output on completion', async () => {
+  const record = { id: 'active', command: 'fetch' };
+  const completed = { ...snapshot([{ sequence: 2, text: 'last live line' }], 'succeeded'), record };
+  const saved = { source: 'file', log_file: '/logs/fetch.log', total: 3, events: [{ sequence: 3, stream: 'log', text: 'saved file line' }] };
+  const { app, calls } = createApp([{ body: completed }, { body: saved }]);
+  app.applySnapshot({ ...snapshot([{ sequence: 1, text: 'live line' }]), record });
+  await app.reviewRecord(record);
+  assert.equal(app.showingSavedOutput, false);
+  assert.equal(calls.length, 0);
+  await app.poll();
+  assert.equal(calls[1].path, '/api/history/active/output');
+  assert.equal(app.showingSavedOutput, true);
+  assert.equal(app.outputEvents[0].text, 'saved file line');
+});
+
+test('successful escape-password output on stderr is informational, not an error', () => {
+  const { app } = createApp([]);
+  app.job = { command: 'escape-password', status: 'succeeded' };
+  const event = { stream: 'stderr', text: 'example%40value', data: null };
+  assert.equal(app.logLevel(event), 'info');
+  assert.equal(app.logEmoji(event), '');
+  assert.equal(app.logEmoji({ ...event, data: { level: 'error', message: 'Explicit error' } }), '❌');
+});
+
+test('Re-run restores legacy argv values, explicit empty strings, and logging level', () => {
+  const { app, calls } = createApp([]);
+  app.commands = [{ id: 'convert-postgres', arguments: ['convert', 'postgres'], options: [
+    { name: 'url', kind: 'string', default: 'postgres://default/db' },
+    { name: 'out', kind: 'string', default: '' },
+  ] }];
+  let opened = false;
+  app.$refs = { wizard: { showModal: () => { opened = true; } } };
+  const record = { id: 'saved', command: 'convert-postgres', origin: 'command', argv: ['molt', 'convert', 'postgres', '--url=', '--out=file=name.sql'], options: {} };
+  app.rerunJob(record);
+  assert.equal(opened, true);
+  assert.equal(app.values.url, '');
+  assert.equal(app.values.out, 'file=name.sql');
+  assert.equal(app.options().url, '');
+  assert.equal(calls.length, 0);
+});
+
+test('Re-run preserves help-only jobs and allows switching to normal execution', () => {
+  const { app } = createApp([]);
+  app.commands = [{ id: 'fetch', arguments: ['fetch'], options: [{ name: 'source', kind: 'string', required: true }] }];
+  app.$refs = { wizard: { showModal() {} } };
+  app.rerunJob({ id: 'help', command: 'fetch', origin: 'help', argv: ['molt', 'fetch', '--help'], options: {} });
+  assert.equal(app.wizardHelpOnly, true);
+  assert.equal(app.requestPayload().help_only, true);
+  assert.equal(app.isRequired(app.definition.options[0]), false);
+  app.wizardHelpOnly = false;
+  assert.equal(app.requestPayload().help_only, false);
+  assert.equal(app.isRequired(app.definition.options[0]), true);
+});
+
+test('saved flags missing from the catalog produce a clear error before opening the modal', () => {
+  const { app, calls } = createApp([]);
+  app.commands = [{ id: 'fetch', arguments: ['fetch'], options: [] }];
+  app.values = { source: 'draft' };
+  app.rerunJob({ id: 'saved', command: 'fetch', origin: 'command', argv: ['molt', 'fetch', '--removed-flag=old'], options: {} });
+  assert.match(app.error, /Cannot restore saved argument/);
+  assert.equal(app.values.source, 'draft');
+  assert.equal(calls.length, 0);
 });

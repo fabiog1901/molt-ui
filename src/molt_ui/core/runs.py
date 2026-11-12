@@ -25,6 +25,7 @@ class Run:
         imported: bool = False,
         record: RunRecord | None = None,
         on_complete: Callable[[RunSnapshot], RunRecord] | None = None,
+        on_output: Callable[[OutputEvent], None] | None = None,
     ) -> None:
         self.id = str(uuid4())
         self.command = command
@@ -36,6 +37,7 @@ class Run:
         self._returncode: int | None = None
         self._aggregation = LogAggregator()
         self._record = record
+        self._on_output = on_output
         self._on_complete = on_complete
         self._history_error: str | None = None
 
@@ -48,6 +50,14 @@ class Run:
             )
             self._events.append(event)
             self._aggregation.ingest(event)
+        on_output = self._on_output
+        if on_output:
+            try:
+                on_output(event)
+            except Exception as exc:
+                with self._lock:
+                    self._history_error = f"Could not capture command output: {exc}"
+                    self._on_output = None
 
     def consume(self, source) -> None:
         while text := source.readline(16384):
@@ -84,7 +94,7 @@ class Run:
         )
         with self._lock:
             final = self._snapshot(status=status, returncode=returncode)
-        record, error = self._record, None
+        record, error = self._record, self._history_error
         if self._on_complete:
             try:
                 # Storage callbacks run outside the log/state lock. Publish the
@@ -98,7 +108,7 @@ class Run:
             self._record = record
             self._history_error = error
 
-    def attach_record(self, record: RunRecord) -> None:
+    def attach_record(self, record: RunRecord | None) -> None:
         with self._lock:
             self._record = record
 
@@ -145,6 +155,8 @@ class RunManager:
         *,
         record: RunRecord | None = None,
         on_complete: Callable[[RunSnapshot], RunRecord] | None = None,
+        on_output: Callable[[OutputEvent], None] | None = None,
+        on_log_file: Callable[[str | None], None] | None = None,
     ) -> Run:
         with self._lock:
             self._ensure_idle()
@@ -152,22 +164,24 @@ class RunManager:
                 raise MoltError(
                     "The execution plan does not match the configured molt executable."
                 )
-            run = Run(plan.command, record=record, on_complete=on_complete)
+            run = Run(plan.command, record=record, on_complete=on_complete, on_output=on_output)
             run.handle = self._process.start(
                 plan.argv[1:],
                 environment=plan.environment,
                 on_output=run.ingest,
                 on_exit=run.finish,
+                **({"on_log_file": on_log_file} if on_log_file is not None else {}),
             )
             self._run = run
             return run
 
     def import_log(
-        self, source, *, save: Callable[[RunSnapshot], RunRecord] | None = None
+        self, source, *, save: Callable[[RunSnapshot], RunRecord] | None = None,
+        on_output: Callable[[OutputEvent], None] | None = None,
     ) -> Run:
         with self._lock:
             self._ensure_idle()
-            run = Run("fetch", imported=True)
+            run = Run("fetch", imported=True, on_output=on_output)
             run.consume(source)
             if run.snapshot().cursor == 0:
                 raise ValueError("The log file is empty.")

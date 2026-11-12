@@ -68,9 +68,17 @@ class CommandResult(ImmutableModel):
 
 class OutputEvent(ImmutableModel):
     sequence: int
-    stream: Literal["stdout", "stderr"]
+    stream: Literal["stdout", "stderr", "log"]
     text: str
     data: dict[str, object] | None
+
+
+class HistoryOutput(ImmutableModel):
+    source: Literal["file", "captured"]
+    log_file: str | None = None
+    total: int
+    events: tuple[OutputEvent, ...]
+    next_before: int | None = None
 
 
 class CommandPlan(ImmutableModel):
@@ -87,6 +95,7 @@ class RunRecord(ImmutableModel):
     command: str
     origin: str
     invocation: str | None = None
+    log_file: str | None = None
     argv: list[str]
     environment: dict[str, str]
     options: dict[str, str | bool]

@@ -11,15 +11,50 @@ document.addEventListener('alpine:init', () => {
     resizeStartY: 0, resizeStartHeight: 240, resizePointer: null,
     steps: ['Operation', 'Connections', 'Common options', 'Advanced', 'Logging', 'Metrics', 'Review'],
     stages: ['operation', 'connections', 'common', 'advanced', 'logging', 'metrics', 'review'],
-    step: 0, preview: null, wizardError: '', advancedSearch: '', prunedOptions: [],
+    step: 0, preview: null, wizardError: '', wizardHelpOnly: false, advancedSearch: '', prunedOptions: [],
     history: [], historyBusy: false, historyError: '', selectedRecord: null, copyMessage: '',
+    historyOutput: null, historyOutputError: '', historyOutputLoading: false, historyBefore: null,
+    historyOutputCleared: false, historyOutputRequest: 0,
     sourceKind: '',
     previousLogLevel: 'info',
 
-    get reviewingHistory() { return Boolean(this.selectedRecord && this.selectedRecord.id !== this.job?.record?.id); },
-    reviewRecord(record) {
-      this.selectedRecord = record; this.copyMessage = '';
+    get reviewingHistory() { return Boolean(this.selectedRecord); },
+    get showingSavedOutput() { return this.reviewingHistory && !(this.running && this.selectedRecord.id === this.job?.record?.id); },
+    get outputEvents() { return this.showingSavedOutput ? (this.historyOutput?.events || []) : this.events; },
+    get outputCursor() { return this.showingSavedOutput ? (this.historyOutput?.total || 0) : this.cursor; },
+    get displayedOutputCleared() { return this.showingSavedOutput ? this.historyOutputCleared : this.outputCleared; },
+    get outputContext() {
+      if (this.showingSavedOutput) return this.selectedRecord.command + ' · saved ' + (this.historyOutput?.source === 'file' ? 'log file' : 'output');
+      return this.job ? this.job.command + ' · ' + this.job.status : 'No command running';
+    },
+    showCurrentSession() {
+      this.selectedRecord = null; this.copyMessage = '';
+      this.historyOutputRequest++;
+      this.historyOutput = null; this.historyOutputError = ''; this.historyOutputLoading = false;
+      if (!this.running) this.resetSession();
       if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
+    },
+    async reviewRecord(record) {
+      this.selectedRecord = record; this.copyMessage = '';
+      this.historyOutput = null; this.historyOutputError = ''; this.historyOutputCleared = false;
+      this.historyBefore = null;
+      if ((globalThis.innerWidth || 1200) <= 850) this.historyOpen = false;
+      if (this.showingSavedOutput) await this.loadHistoryOutput();
+    },
+    async loadHistoryOutput(before = null) {
+      if (!this.selectedRecord) return;
+      const recordId = this.selectedRecord.id, requestId = ++this.historyOutputRequest;
+      this.historyOutputLoading = true; this.historyOutputError = '';
+      try {
+        const page = await this.request(`/api/history/${encodeURIComponent(recordId)}/output${before === null ? '' : '?before=' + before}`);
+        if (this.selectedRecord?.id !== recordId || requestId !== this.historyOutputRequest) return;
+        this.historyOutput = page; this.historyBefore = before; this.historyOutputCleared = false;
+        if (this.followOutput) this.scrollOutputToEnd();
+      } catch (error) {
+        if (this.selectedRecord?.id === recordId && requestId === this.historyOutputRequest) this.historyOutputError = error.message;
+      } finally {
+        if (requestId === this.historyOutputRequest) this.historyOutputLoading = false;
+      }
     },
     outputMaxHeight() {
       const height = globalThis.innerHeight || 800;
@@ -56,21 +91,28 @@ document.addEventListener('alpine:init', () => {
       this.resizePointer = null;
     },
     clearOutput() {
+      if (this.showingSavedOutput) {
+        if (this.historyOutput) this.historyOutput = {...this.historyOutput, events: []};
+        this.historyOutputCleared = true;
+        return;
+      }
       this.events = [];
       this.truncated = false;
       this.outputCleared = true;
     },
-    logLevel(event) { return String(event.data?.level || event.stream || 'info').toLowerCase(); },
+    logLevel(event) { return String(event.data?.level || 'info').toLowerCase(); },
+    showLogEmoji(event) { return Object.hasOwn(event.data ?? {}, 'level'); },
     logEmoji(event) {
+      if (!this.showLogEmoji(event)) return '';
       return ({trace: '🔬', debug: '🐛', info: 'ℹ️', warn: '⚠️', warning: '⚠️',
-        error: '❌', fatal: '💥', panic: '🚨', stdout: '📄', stderr: '❌'})[this.logLevel(event)] || '🔹';
+        error: '❌', fatal: '💥', panic: '🚨'})[this.logLevel(event)] || '🔹';
     },
     scrollOutputToEnd() {
       if (!this.$refs?.output) return;
       this.$nextTick(() => { const panel = this.$refs?.output; if (panel) panel.scrollTop = panel.scrollHeight; });
     },
     outputScrolled() {
-      if (this.outputCollapsed) return;
+      if (this.outputCollapsed || this.showingSavedOutput) return;
       const panel = this.$refs?.output;
       if (panel) this.followOutput = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80;
     },
@@ -116,6 +158,10 @@ document.addEventListener('alpine:init', () => {
         }
       }
     },
+    inputType(option) {
+      if (['source', 'target'].includes(option.name)) return 'text';
+      return option.secret ? 'password' : 'text';
+    },
     fieldValue(option) {
       const value = this.values[option.name];
       if (value !== undefined) return option.kind === 'bool' ? value === true || value === 'true' : value;
@@ -142,6 +188,7 @@ document.addEventListener('alpine:init', () => {
       this.parametersChanged();
     },
     isRequired(option) {
+      if (this.wizardHelpOnly) return false;
       if (option.name === 'source' && this.command === 'fetch' && this.sourceKind && option.from_environment) {
         const configured = this.definition?.default_source_dialect;
         if (configured !== 'unknown' && configured !== this.sourceKind && !(configured === 'cockroachdb' && this.sourceKind === 'postgres')) return true;
@@ -153,14 +200,15 @@ document.addEventListener('alpine:init', () => {
       return option.default_label || 'Not set';
     },
     requestPayload(helpOnly = false) {
-      return {command: this.command, options: this.options(), help_only: helpOnly,
+      return {command: this.command, options: this.options(), help_only: helpOnly || this.wizardHelpOnly,
         ...(this.command === 'fetch' && this.sourceKind ? {source_kind: this.sourceKind} : {})};
     },
-    openWizard() {
+    openWizard(helpOnly = false) {
       if (this.running || this.busy) return;
+      this.wizardHelpOnly = helpOnly === true;
       if (this.command === 'fetch' && !this.sourceKind) {
         const scheme = String(this.values.source || '').split(':')[0].toLowerCase();
-        const dialect = ({postgresql:'postgres', postgres:'postgres', mysql:'mysql', oracle:'oracle'})[scheme] || this.definition?.default_source_dialect;
+        const dialect = ({postgresql:'postgres', postgres:'postgres', cockroach:'postgres', cockroachdb:'postgres', mysql:'mysql', oracle:'oracle'})[scheme] || this.definition?.default_source_dialect;
         this.sourceKind = ['postgres', 'oracle', 'mysql'].includes(dialect) ? dialect : 'postgres';
       }
       this.step = 0; this.preview = null; this.wizardError = ''; this.prunedOptions = []; this.advancedSearch = '';
@@ -193,6 +241,82 @@ document.addEventListener('alpine:init', () => {
       }
       catch (error) { this.historyError = error.message; }
       finally { this.historyBusy = false; }
+    },
+    async deleteHistoryRecord(record) {
+      if (!record || this.running || this.busy || this.historyBusy) return;
+      this.historyBusy = true; this.historyError = '';
+      try {
+        await this.request(`/api/history/${encodeURIComponent(record.id)}`, {method: 'DELETE'});
+        this.history = this.history.filter(item => item.id !== record.id);
+        if (this.job?.record?.id === record.id) this.job.record = null;
+        if (this.selectedRecord?.id === record.id) this.showCurrentSession();
+      } catch (error) { this.historyError = error.message; }
+      finally { this.historyBusy = false; }
+    },
+    async clearHistory() {
+      if (this.running || this.busy || this.historyBusy || !this.history.length) return;
+      this.busy = true; this.historyBusy = true; this.historyError = '';
+      try {
+        await this.request('/api/history', {method: 'DELETE'});
+        this.history = []; this.selectedRecord = null; this.copyMessage = '';
+        this.historyOutputRequest++; this.historyOutput = null; this.historyOutputError = ''; this.historyOutputLoading = false;
+        this.historyLoaded = true;
+        if (this.job) this.job.record = null;
+      } catch (error) { this.historyError = error.message; }
+      finally { this.busy = false; this.historyBusy = false; }
+    },
+    canRerun(record) {
+      return Boolean(record && ['command', 'help'].includes(record.origin) && record.argv?.length > 1);
+    },
+    rerunJob(record) {
+      if (!this.canRerun(record) || this.running || this.busy) return;
+      this.error = '';
+      try {
+        const definition = this.commands.find(item => item.id === record.command);
+        if (!definition) throw new Error('This saved command is unavailable in the current Molt version.');
+        const known = new Map(definition.options.map(option => [option.name, option]));
+        const path = definition.arguments || [record.command];
+        if (!path.every((argument, index) => record.argv[index + 1] === argument)) {
+          throw new Error('The saved command arguments no longer match the command catalog.');
+        }
+        const values = {};
+        let helpOnly = record.origin === 'help';
+        const args = record.argv.slice(path.length + 1);
+        for (let index = 0; index < args.length; index++) {
+          const argument = args[index];
+          if (argument === '--help' || argument === '-h') { helpOnly = true; continue; }
+          const match = /^--([^=]+)(?:=(.*))?$/s.exec(argument);
+          const option = match && known.get(match[1]);
+          if (!option) throw new Error(`Cannot restore saved argument ${argument}: update the command configuration for this Molt version.`);
+          let value = match[2];
+          if (value === undefined) value = option.kind === 'bool' ? 'true' : args[++index];
+          if (value === undefined) throw new Error(`The saved --${option.name} argument has no value.`);
+          if (option.kind === 'bool') {
+            if (!['true', 'false'].includes(value)) throw new Error(`The saved --${option.name} value cannot be displayed as a checkbox.`);
+            value = value === 'true';
+          }
+          values[option.name] = value;
+        }
+        for (const [name, value] of Object.entries(record.options || {})) {
+          if (!known.has(name)) throw new Error(`The saved --${name} option is unavailable in this Molt version.`);
+          values[name] = value;
+        }
+        for (const option of definition.options) {
+          if (option.environment_variable && !Object.hasOwn(values, option.name) && Object.hasOwn(record.environment || {}, option.environment_variable)) {
+            values[option.name] = record.environment[option.environment_variable];
+          }
+        }
+        this.command = record.command;
+        this.values = values;
+        this.sourceKind = '';
+        const scheme = String(values.source || '').split(':')[0].toLowerCase();
+        const dialect = ({postgresql:'postgres', postgres:'postgres', cockroach:'postgres', cockroachdb:'postgres', mysql:'mysql', oracle:'oracle'})[scheme];
+        if (this.command === 'fetch') {
+          this.sourceKind = dialect || (Object.keys(values).some(name => values[name] && (name.startsWith('oracle-') || name === 'source-cdb' || name === 'source-oracle-wallet-location')) ? 'oracle' : '');
+        }
+        this.previousLogLevel = values.logging && values.logging !== 'disabled' ? values.logging : 'info';
+        this.openWizard(helpOnly);
+      } catch (error) { this.error = error.message; }
     },
     async copyCommand(text) {
       try { await navigator.clipboard.writeText(text); this.copyMessage = 'Copied'; }
@@ -240,7 +364,7 @@ document.addEventListener('alpine:init', () => {
       } catch (error) { this.error = error.message; }
       try {
         const latest = await this.request('/api/jobs');
-        if (latest) {
+        if (latest?.status === 'running') {
           if (this.commands.some(item => item.id === latest.command)) this.command = latest.command;
           this.applySnapshot(latest);
           if (this.running) this.schedulePoll();
@@ -256,10 +380,18 @@ document.addEventListener('alpine:init', () => {
       this.sourceKind = this.command === 'fetch' ? (['postgres', 'oracle', 'mysql'].includes(configured) ? configured : 'postgres') : '';
       this.preview = null; this.wizardError = ''; this.prunedOptions = [];
     },
-    resetRun(snapshot) {
+    resetSession() {
       clearTimeout(this.timer);
+      this.job = null; this.selectedRecord = null;
+      this.historyOutputRequest++;
+      this.historyOutput = null; this.historyOutputError = ''; this.historyOutputLoading = false;
       this.events = []; this.cursor = 0; this.truncated = false; this.outputCleared = false;
-      this.expandedTable = ''; this.tableDetail = null; this.tableFilter = ''; this.tablePage = 1;
+      this.aggregation = {totals: {}, tables: []};
+      this.expandedTable = ''; this.tableDetail = null; this.detailError = '';
+      this.tableFilter = ''; this.tablePage = 1;
+    },
+    resetRun(snapshot) {
+      this.resetSession();
       this.applySnapshot(snapshot);
       this.selectedRecord = null;
       if (this.historyLoaded) this.refreshHistory();
@@ -316,7 +448,7 @@ document.addEventListener('alpine:init', () => {
     },
     applySnapshot(snapshot) {
       const panel = this.$refs?.output;
-      const follow = panel && this.followOutput && !this.outputCollapsed;
+      const follow = panel && this.followOutput && !this.outputCollapsed && !this.showingSavedOutput;
       this.job = snapshot;
       this.aggregation = snapshot.aggregation || {totals: {}, tables: []};
       this.truncated ||= snapshot.truncated || this.events.length + snapshot.events.length > 2000;
@@ -350,6 +482,7 @@ document.addEventListener('alpine:init', () => {
         if (this.job?.id !== jobId) return;
         this.applySnapshot(snapshot);
         if (!this.running && this.historyLoaded) await this.refreshHistory();
+        if (!this.running && this.selectedRecord?.id === snapshot.record?.id) await this.loadHistoryOutput();
         const selected = this.aggregation.tables.find(table => table.name === this.expandedTable);
         if (selected && (!this.tableDetail || this.tableDetail.total !== selected.log_lines)) await this.loadTableLogs();
         this.error = snapshot.history_error || '';
@@ -374,12 +507,18 @@ document.addEventListener('alpine:init', () => {
         await this.poll();
       } catch (error) { this.error = error.message; }
     },
+    formatTimestamp(value) {
+      if (value == null) return '';
+      return typeof value === 'string'
+        ? value.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/, '$1 $2')
+        : value;
+    },
     formatEvent(event) {
       if (!event.data) return event.text;
       const { time = '', level, message = '', ...fields } = event.data;
       const details = Object.entries(fields).map(([key, value]) =>
         `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`).join(', ');
-      const timestamp = typeof time === 'string' ? time.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?Z$/, '$1 $2') : time;
+      const timestamp = this.formatTimestamp(time);
       return [timestamp, message, details].filter(part => part !== '' && part != null).join(' ');
     },
   }));

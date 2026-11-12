@@ -8,10 +8,11 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from molt_ui.repo.repo import RepoError
+from molt_ui.repo.output import OutputCapture
 
-from .commands import build_plan
+from .commands import build_plan, replay_plan
 from .errors import MoltError
-from .models import CommandCatalog, CommandPlan, CommandResult, CommandSpec, RunRecord, RunSnapshot, TableLogs
+from .models import CommandCatalog, CommandPlan, CommandResult, CommandSpec, HistoryOutput, RunRecord, RunSnapshot, TableLogs
 from .runs import RunManager
 
 if TYPE_CHECKING:
@@ -73,14 +74,6 @@ class MoltService:
         if self._closed:
             raise MoltError("The application service has been closed.")
 
-    def _save_completion(self, snapshot: RunSnapshot) -> RunRecord:
-        return self._repo.update_run(
-            snapshot.record.id,
-            status=snapshot.status,
-            returncode=snapshot.returncode,
-            summary=snapshot.aggregation["totals"],
-        )
-
     def start(
         self,
         command: str,
@@ -94,33 +87,65 @@ class MoltService:
             plan = self.preview(
                 command, options, help_only=help_only
             )
-            record = self._storage(
-                self._repo.create_run,
-                command,
-                origin="help" if help_only else "command",
-                invocation=plan.invocation,
-                argv=plan.argv,
-                environment=plan.environment,
-                options=plan.options,
-            )
+            return self._start_plan(plan, origin="help" if help_only else "command")
+
+    def rerun(self, record_id: str) -> RunSnapshot:
+        with self._operations:
+            self._ensure_open()
+            self._runs.ensure_idle()
+            saved = self._storage(self._repo.get_run, record_id)
+            plan = replay_plan(self._process.executable, saved)
+            return self._start_plan(plan, origin=saved.origin)
+
+    def _start_plan(self, plan: CommandPlan, *, origin: str) -> RunSnapshot:
+        record = self._storage(
+            self._repo.create_run,
+            plan.command,
+            origin=origin,
+            invocation=plan.invocation,
+            argv=plan.argv,
+            environment=plan.environment,
+            options=plan.options,
+        )
+        capture = OutputCapture()
+        log_file = None
+
+        def found_log_file(path: str | None) -> None:
+            nonlocal log_file
+            log_file = path
+
+        def save_completion(snapshot: RunSnapshot) -> RunRecord:
             try:
-                record = self._storage(
-                    self._repo.update_run, record.id, status="running"
+                return self._repo.update_run(
+                    snapshot.record.id, status=snapshot.status, returncode=snapshot.returncode,
+                    summary=snapshot.aggregation["totals"], error=snapshot.history_error,
+                    log_file=log_file, output=None if log_file else capture.events(),
                 )
-                run = self._runs.start(
-                    plan, record=record, on_complete=self._save_completion
+            finally:
+                capture.close()
+
+        try:
+            record = self._storage(
+                self._repo.update_run, record.id, status="running"
+            )
+            run = self._runs.start(
+                plan, record=record, on_complete=save_completion,
+                on_output=capture.write, on_log_file=found_log_file
+            )
+        except MoltError as exc:
+            capture.close()
+            try:
+                self._repo.update_run(
+                    record.id, status="launch_failed", error=str(exc)
                 )
-            except MoltError as exc:
-                try:
-                    self._repo.update_run(
-                        record.id, status="launch_failed", error=str(exc)
-                    )
-                except RepoError:
-                    pass
-                raise
-            return run.snapshot()
+            except RepoError:
+                pass
+            raise
+        return run.snapshot()
 
     def import_log(self, source) -> RunSnapshot:
+        capture = OutputCapture()
+
         def save_import(snapshot: RunSnapshot) -> RunRecord:
             record = self._storage(
                 self._repo.create_run, snapshot.command, origin="import"
@@ -129,12 +154,15 @@ class MoltService:
                 self._repo.update_run,
                 record.id,
                 status="imported",
-                summary=snapshot.aggregation["totals"],
+                summary=snapshot.aggregation["totals"], output=capture.events(), error=snapshot.history_error,
             )
 
-        with self._operations:
-            self._ensure_open()
-            return self._runs.import_log(source, save=save_import).snapshot()
+        try:
+            with self._operations:
+                self._ensure_open()
+                return self._runs.import_log(source, save=save_import, on_output=capture.write).snapshot()
+        finally:
+            capture.close()
 
     def latest_run(self) -> RunSnapshot | None:
         run = self._runs.latest()
@@ -153,6 +181,31 @@ class MoltService:
 
     def list_history(self, limit: int = 50) -> list[RunRecord]:
         return self._storage(self._repo.list_runs, limit)
+
+    def get_history_output(self, record_id: str, *, before: int | None = None, limit: int = 2000) -> HistoryOutput:
+        return self._storage(self._repo.get_run_output, record_id, before=before, limit=limit)
+
+    def delete_history_record(self, record_id: str) -> int:
+        with self._operations:
+            self._ensure_open()
+            self._runs.ensure_idle()
+            deleted = self._storage(self._repo.delete_run, record_id)
+            latest = self._runs.latest()
+            if latest is not None:
+                record = latest.snapshot().record
+                if record is not None and record.id == record_id:
+                    latest.attach_record(None)
+            return deleted
+
+    def clear_history(self) -> int:
+        with self._operations:
+            self._ensure_open()
+            self._runs.ensure_idle()
+            deleted = self._storage(self._repo.clear_runs)
+            latest = self._runs.latest()
+            if latest is not None:
+                latest.attach_record(None)
+            return deleted
 
     def get_history_record(self, record_id: str) -> RunRecord:
         return self._storage(self._repo.get_run, record_id)

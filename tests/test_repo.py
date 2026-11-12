@@ -169,3 +169,24 @@ def test_schema_upgrade_is_logged_and_preserves_run_values(tmp_path, caplog):
     assert f"Updated SQLite schema at {path}" in caplog.text
     assert "migrated command_catalog from file fingerprint to stored payload" in caplog.text
     assert "sensitive-command-value" not in caplog.text
+
+
+def test_clearing_history_removes_all_records_and_preserves_catalog(command_catalog, tmp_path):
+    import pytest
+
+    database = str(tmp_path / "clear-history.sqlite3")
+    repo = Repo(database)
+    catalog = repo.save_catalog("v1", command_catalog)
+    records = [repo.create_run("fetch", origin="command") for _ in range(65)]
+    assert len(repo.list_runs()) == 50
+    assert repo.clear_runs() == 65
+    assert repo.list_runs() == []
+    assert repo.get_catalog() == catalog
+    assert repo.clear_runs() == 0
+    with pytest.raises(KeyError):
+        repo.get_run(records[0].id)
+    repo.close()
+    repo = Repo(database)
+    assert repo.list_runs() == []
+    assert repo.get_catalog() == catalog
+    repo.close()
