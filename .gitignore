@@ -9,3 +9,7 @@ dist/
 
 molt/
 *.log
+
+*.tsv
+*.csv
+*.dump
