@@ -58,3 +58,56 @@ def test_cli_exits_without_starting_server(monkeypatch, argv):
         main(argv)
     assert exc.value.code == (0 if argv == ["--help"] else 2)
     run.assert_not_called()
+
+
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("existing", [False, True])
+def test_drop_db_recreates_schema_at_configured_path(
+    monkeypatch, tmp_path, configured, existing
+):
+    from molt_ui.config import Settings
+    from molt_ui.repo import Repo
+
+    monkeypatch.chdir(tmp_path)
+    if configured:
+        database = tmp_path / "custom" / "history.sqlite3"
+        monkeypatch.setenv("MOLT_DATABASE", str(database))
+    else:
+        database = tmp_path / ".data" / "molt-ui.sqlite3"
+        monkeypatch.delenv("MOLT_DATABASE", raising=False)
+    if existing:
+        repo = Repo(str(database))
+        repo.create_run("fetch", origin="import")
+        repo.close()
+        for suffix in ("-wal", "-shm", "-journal"):
+            database.with_name(database.name + suffix).write_bytes(b"stale data")
+
+    def run(app, **options):
+        assert app == "molt_ui.api.app:app"
+        assert options == {"host": "127.0.0.1", "port": 8000, "reload": True}
+        assert Settings.from_environment().database == str(database)
+        assert not database.exists()
+        for suffix in ("-wal", "-shm", "-journal"):
+            assert not database.with_name(database.name + suffix).exists()
+        repo = Repo(str(database))
+        assert repo.list_runs() == []
+        saved = repo.create_run("fetch", origin="import")
+        repo.close()
+        # A new service on reload reopens the same database without dropping it.
+        repo = Repo(str(database))
+        assert repo.get_run(saved.id) == saved
+        repo.close()
+
+    monkeypatch.setattr("molt_ui.main.uvicorn.run", run)
+    main(["--drop-db", "--reload"])
+    assert database.exists()
+
+
+def test_drop_db_supports_in_memory_database(monkeypatch):
+    monkeypatch.setenv("MOLT_DATABASE", ":memory:")
+    run = Mock()
+    monkeypatch.setattr("molt_ui.main.uvicorn.run", run)
+    main(["--drop-db"])
+    run.assert_called_once_with(
+        "molt_ui.api.app:app", host="127.0.0.1", port=8000, reload=False
+    )

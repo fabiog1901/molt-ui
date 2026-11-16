@@ -124,12 +124,19 @@ Job history and metric samples are saved in `.data/molt-ui.sqlite3` under the
 directory where you launch the app. Set `MOLT_DATABASE` to an absolute path to
 share the same history across launches from different directories.
 
+Start from scratch with `molt-web --drop-db`. This deletes the configured
+SQLite database, including saved history, metrics, and command catalog. Startup
+recreates the database at the same path using the current schema and refreshes
+the command catalog. Deletion happens once before the server starts, so
+`--reload` restarts retain data created during that session.
+
 Run IDs keep Molt's raw UTC timestamp, such as `2026-11-12T17.50.58Z`, and the
 interface displays it as `2026-11-12 17:50:58`. Runs without a timestamped
 filename use their start time. Duplicate timestamps are rejected rather than
 assigned a suffix.
-Older database schemas are not automatically upgraded; use a fresh
-`MOLT_DATABASE` path when switching from an older schema.
+Older database schemas are not automatically upgraded; use `--drop-db` to reset
+the database when switching from an older schema, or choose a fresh
+`MOLT_DATABASE` path to preserve the old database.
 
 ## Review logs
 

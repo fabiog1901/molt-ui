@@ -2,8 +2,11 @@
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 import uvicorn
+
+from molt_ui.config import Settings
 
 
 def port_number(value: str) -> int:
@@ -34,8 +37,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--reload", action="store_true", help="Reload the server when source files change"
     )
+    parser.add_argument(
+        "--drop-db", action="store_true",
+        help="Delete the configured database and start with a fresh schema",
+    )
     args, extra_args = parser.parse_known_args(argv)
     options = vars(args)
+    drop_db = options.pop("drop_db")
     remaining = iter(extra_args)
     for argument in remaining:
         key, separator, value = argument.partition("=")
@@ -46,6 +54,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             if value is None or value.startswith("--"):
                 parser.error(f"{key} requires a value")
         options[key[2:].replace("-", "_")] = value
+    if drop_db:
+        database = Settings.from_environment().database
+        if database != ":memory:":
+            target = Path(database).expanduser().resolve()
+            target.unlink(missing_ok=True)
+            for suffix in ("-wal", "-shm", "-journal"):
+                Path(f"{target}{suffix}").unlink(missing_ok=True)
     uvicorn.run("molt_ui.api.app:app", **options)
 
 
