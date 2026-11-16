@@ -1,7 +1,7 @@
 import pytest
 
 from molt_ui.core.commands import build_command
-from molt_ui.frontends.models import CommandDefinition
+from molt_ui.api.models import CommandDefinition
 
 
 def frontend_catalog(command_catalog):

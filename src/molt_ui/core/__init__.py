@@ -1,1 +1,1 @@
-"""Shared application logic and Pydantic models, independent of the frontends."""
+"""Shared application logic and Pydantic models, independent of the API."""

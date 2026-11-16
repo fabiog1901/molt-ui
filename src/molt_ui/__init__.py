@@ -1,1 +1,1 @@
-"""One Python core, two user interfaces."""
+"""Web interface for the Molt database migration tool."""

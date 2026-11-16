@@ -2,11 +2,9 @@ import sys
 from unittest.mock import Mock, patch
 from urllib.parse import quote
 
-from fastapi.testclient import TestClient
 
 from molt_ui.core.models import CommandPlan
 from molt_ui.core.service import MoltService
-from molt_ui.frontends.api.app import create_app
 from molt_ui.molt_process import MoltProcess
 from molt_ui.repo import Repo
 
@@ -15,9 +13,9 @@ LOG_NAME = 'verify-2026-11-12T17.50.58Z.log'
 LOG_ID = '2026-11-12T17.50.58Z'
 
 
-def test_log_upload_uses_filename_timestamp_and_rejects_repeat_imports():
+def test_log_upload_uses_filename_timestamp_and_rejects_repeat_imports(api_client):
     service = MoltService(MoltProcess('/unused'), Repo())
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         response = client.post('/api/log-imports', content='original output\n',
                                headers={'X-Log-Filename': quote(LOG_NAME)})
         assert response.status_code == 201
@@ -46,12 +44,12 @@ def test_open_log_file_uses_its_name_without_an_upload_header(tmp_path):
         service.close()
 
 
-def test_duplicate_explicit_log_timestamp_is_rejected_before_process_launch(command_catalog):
+def test_duplicate_explicit_log_timestamp_is_rejected_before_process_launch(api_client, command_catalog):
     repo = Repo()
     original = repo.create_run('verify', origin='command', log_name=LOG_NAME)
     original = repo.update_run(original.id, status='succeeded', returncode=0)
     service = MoltService(MoltProcess('molt'), repo, catalog=command_catalog)
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         with patch('molt_ui.molt_process.subprocess.Popen') as spawn:
             response = client.post('/api/jobs', json={'command': 'verify', 'options': {'log-file': LOG_NAME}})
             assert response.status_code == 409

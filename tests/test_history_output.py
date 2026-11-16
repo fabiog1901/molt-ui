@@ -5,13 +5,11 @@ import sys
 import time
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
 import pytest
 
 from molt_ui.core.errors import MoltError
 from molt_ui.core.models import CommandPlan
 from molt_ui.core.service import MoltService
-from molt_ui.frontends.api.app import create_app
 from molt_ui.molt_process import LogFileTracker, MoltProcess, OutputLogTee
 from molt_ui.repo import Repo
 
@@ -25,7 +23,7 @@ def wait_for(service, run):
     raise AssertionError("Job did not finish")
 
 
-def test_full_stdout_and_stderr_survive_restart_beyond_live_buffer(tmp_path):
+def test_full_stdout_and_stderr_survive_restart_beyond_live_buffer(api_client, tmp_path):
     database = str(tmp_path / "history.sqlite3")
     service = MoltService(MoltProcess(sys.executable), Repo(database))
     code = "import sys; [print('row '+str(i)+' '+('x'*300)) for i in range(5000)]; print('last error', file=sys.stderr)"
@@ -36,7 +34,7 @@ def test_full_stdout_and_stderr_survive_restart_beyond_live_buffer(tmp_path):
     record_id = completed.record.id
     service.close()
     service = MoltService(MoltProcess("/unused"), Repo(database))
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         page = client.get(f"/api/history/{record_id}/output").json()
         assert page["source"] == "captured"
         assert page["total"] == 5001
@@ -239,7 +237,7 @@ def test_automatic_log_discovery_ignores_old_files_and_ambiguous_files(tmp_path,
     assert stdout_only.created_file() is None
 
 
-def test_history_rebuilds_full_file_progress_after_restart_and_expands_tables(tmp_path):
+def test_history_rebuilds_full_file_progress_after_restart_and_expands_tables(api_client, tmp_path):
     database = str(tmp_path / "history.sqlite3")
     path = tmp_path / "fetch.log"
     lines = [
@@ -258,7 +256,7 @@ def test_history_rebuilds_full_file_progress_after_restart_and_expands_tables(tm
     repo.close()
     service = MoltService(MoltProcess("/unused"), Repo(database))
     current = service.import_log(StringIO('unrelated current output\n'))
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         page = client.get(f"/api/history/{record.id}/output?limit=1").json()
         assert len(page["events"]) == 1
         assert page["events"][0]["text"] == "plain output"

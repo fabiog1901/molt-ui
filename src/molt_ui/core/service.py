@@ -1,4 +1,4 @@
-"""Application operations shared by the HTTP and terminal frontends."""
+"""Application operations used by the HTTP API."""
 
 from __future__ import annotations
 

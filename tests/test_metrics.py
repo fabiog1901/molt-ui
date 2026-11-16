@@ -5,12 +5,10 @@ from threading import Event
 import time
 from unittest.mock import Mock, patch
 
-from fastapi.testclient import TestClient
 import pytest
 
 from molt_ui.core.metrics import MetricsEngine, counter_rate, histogram_quantile, parse_exposition
 from molt_ui.core.service import MoltService
-from molt_ui.frontends.api.app import create_app
 from molt_ui.metrics import MetricsCollector, fetch_metrics, metrics_endpoint
 from molt_ui.molt_process import MoltProcess
 from molt_ui.repo import Repo
@@ -154,7 +152,7 @@ def test_collector_retries_failure_with_a_gap_and_closes_before_persistence_ends
 
 
 @pytest.mark.parametrize('returncode, status', [(0, 'succeeded'), (2, 'failed')])
-def test_service_collects_in_background_and_api_history_survives_restart(command_catalog, tmp_path, returncode, status):
+def test_service_collects_in_background_and_api_history_survives_restart(api_client, command_catalog, tmp_path, returncode, status):
     database = str(tmp_path / 'service-metrics.sqlite3')
     process = MoltProcess('molt')
     callbacks = {}
@@ -182,7 +180,7 @@ def test_service_collects_in_background_and_api_history_survives_restart(command
         assert service.get_run(run.id).status == 'running'
         service.close()
     restarted = MoltService(MoltProcess('molt'), Repo(database))
-    with TestClient(create_app(restarted)) as client:
+    with api_client(restarted) as client:
         response = client.get(f'/api/history/{run.record.id}/metrics')
         assert response.status_code == 200
         saved = response.json()

@@ -1,7 +1,7 @@
-"""Validated request and command-field models shared by the frontends.
+"""Validated HTTP requests and web command-field metadata.
 
 These describe frontend inputs and display metadata. Process output and shared
-application state belong in core.models, so the core never imports a frontend.
+application state belong in core.models, so the core never imports the API.
 """
 
 from collections.abc import Mapping

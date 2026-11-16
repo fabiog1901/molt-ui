@@ -1,8 +1,6 @@
 from unittest.mock import Mock
 
-from fastapi.testclient import TestClient
 
-from molt_ui.frontends.api.app import create_app
 from molt_ui.core.errors import MoltError
 from molt_ui.core.models import CommandPlan, CommandResult, LogEntry
 from molt_ui.core.service import MoltService
@@ -10,7 +8,7 @@ from molt_ui.molt_process import MoltProcess
 from molt_ui.repo import Repo
 
 
-def test_api_uses_the_shared_service():
+def test_api_uses_the_shared_service(api_client):
     service = Mock(spec=MoltService)
     service.help.return_value = CommandResult(
         stdout="output",
@@ -18,7 +16,7 @@ def test_api_uses_the_shared_service():
         returncode=1,
         logs=(LogEntry(stream="stderr", data={"level": "warn"}),),
     )
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         response = client.post("/api/cli/help")
         assert response.status_code == 200
         assert response.json() == {
@@ -30,29 +28,29 @@ def test_api_uses_the_shared_service():
     service.help.assert_called_once_with()
 
 
-def test_cli_failure_is_returned_to_the_ui():
+def test_cli_failure_is_returned_to_the_ui(api_client):
     service = Mock(spec=MoltService)
     service.help.side_effect = MoltError("Executable missing")
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         response = client.post("/api/cli/help")
         assert response.status_code == 503
         assert response.json()["detail"] == "Executable missing"
 
 
-def test_frontend_assets_are_served(command_catalog):
-    with TestClient(create_app(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog))) as client:
+def test_frontend_assets_are_served(api_client, command_catalog):
+    with api_client(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog)) as client:
         assert 'x-data="cliApp"' in client.get("/").text
         for path in ("/static/styles.css", "/static/app.js"):
             assert client.get(path).status_code == 200
         assert client.get("/api/unknown").status_code == 404
 
 
-def test_job_api_runs_real_help_and_reports_validation_errors(command_catalog):
+def test_job_api_runs_real_help_and_reports_validation_errors(api_client, command_catalog):
     import sys
     import time
 
     service = MoltService(MoltProcess(sys.executable), Repo(), catalog=command_catalog)
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         commands = client.get("/api/commands").json()
         assert any(command["id"] == "fetch" for command in commands)
         assert client.post("/api/jobs", json={"command": "invalid"}).status_code == 422
@@ -87,12 +85,12 @@ def test_job_api_runs_real_help_and_reports_validation_errors(command_catalog):
         assert client.get("/api/jobs/missing").status_code == 404
 
 
-def test_aggregate_snapshot_and_lazy_table_logs_are_consistent(command_catalog):
+def test_aggregate_snapshot_and_lazy_table_logs_are_consistent(api_client, command_catalog):
     import sys
     import time
 
     service = MoltService(MoltProcess(sys.executable), Repo(), catalog=command_catalog)
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         code = """import json
 print(json.dumps({'level': 'info', 'source_table': 'public.actor', 'target_table': 'public.actor', 'message': 'found matching table'}))
 print(json.dumps({'level': 'info', 'table': 'public.actor', 'num_rows': 200, 'message': 'data extraction from source complete'}))
@@ -142,10 +140,10 @@ print(json.dumps({'level': 'warn', 'message': 'global warning'}))
         )
 
 
-def test_upload_imports_jsonl_and_preserves_a_previous_preview_on_empty_upload(command_catalog):
+def test_upload_imports_jsonl_and_preserves_a_previous_preview_on_empty_upload(api_client, command_catalog):
     from pathlib import Path
 
-    with TestClient(create_app(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog))) as client:
+    with api_client(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog)) as client:
         sample = (
             Path(__file__).parents[1] / "src/molt_ui/webapp/static/sample-fetch.jsonl"
         )
@@ -173,14 +171,14 @@ def test_upload_imports_jsonl_and_preserves_a_previous_preview_on_empty_upload(c
         assert client.get("/static/sample-fetch.jsonl").status_code == 200
 
 
-def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(command_catalog, tmp_path):
+def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(api_client, command_catalog, tmp_path):
     import sys
     import time
     from unittest.mock import patch
 
     database = str(tmp_path / "metadata.sqlite3")
     service = MoltService(MoltProcess(sys.executable), Repo(database), catalog=command_catalog)
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         with patch("molt_ui.molt_process.subprocess.Popen") as spawn:
             response = client.post(
                 "/api/command-preview",
@@ -213,7 +211,7 @@ def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(command_c
         record_id = state["record"]["id"]
         assert state["record"]["invocation"].endswith("fetch --help")
     restarted = MoltService(MoltProcess("molt"), Repo(database), catalog=command_catalog)
-    with TestClient(create_app(restarted)) as client:
+    with api_client(restarted) as client:
         records = client.get("/api/history").json()
         assert records[0]["id"] == record_id
         assert records[0]["status"] == "failed"
@@ -223,8 +221,8 @@ def test_wizard_preview_is_nonexecuting_and_history_survives_a_new_app(command_c
         assert client.get("/api/history/unknown").status_code == 404
 
 
-def test_source_picker_is_frontend_context_and_does_not_change_execution_plan(command_catalog):
-    with TestClient(create_app(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog))) as client:
+def test_source_picker_is_frontend_context_and_does_not_change_execution_plan(api_client, command_catalog):
+    with api_client(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog)) as client:
         response = client.post(
             "/api/command-preview",
             json={
@@ -260,21 +258,21 @@ def test_source_picker_is_frontend_context_and_does_not_change_execution_plan(co
         )
 
 
-def test_incompatible_modal_catalog_is_reported_as_an_actionable_error(command_catalog):
+def test_incompatible_modal_catalog_is_reported_as_an_actionable_error(api_client, command_catalog):
 
     service = Mock(spec=MoltService)
     fetch = next(spec for spec in command_catalog.commands if spec.id == "fetch")
     service.commands.return_value = (fetch.model_copy(update={
         "options": tuple(option for option in fetch.options if option.name != "source"),
     }),)
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         response = client.get("/api/commands")
         assert response.status_code == 503
         assert "no longer contains --source" in response.json()["detail"]
         assert client.get("/").status_code == 200
 
 
-def test_history_rerun_endpoint_starts_a_new_job_and_retains_the_original():
+def test_history_rerun_endpoint_starts_a_new_job_and_retains_the_original(api_client):
     import sys
     import time
 
@@ -284,7 +282,7 @@ def test_history_rerun_endpoint_starts_a_new_job_and_retains_the_original():
     original = repo.update_run(original.id, status="succeeded", returncode=0)
     imported = repo.create_run("fetch", origin="import")
     service = MoltService(MoltProcess(sys.executable), repo)
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         assert client.post("/api/history/missing/rerun").status_code == 404
         assert client.post(f"/api/history/{imported.id}/rerun").status_code == 422
         response = client.post(f"/api/history/{original.id}/rerun")
@@ -303,14 +301,14 @@ def test_history_rerun_endpoint_starts_a_new_job_and_retains_the_original():
         assert len(client.get("/api/history").json()) == 3
 
 
-def test_clear_history_endpoint_deletes_records_and_preserves_current_output(command_catalog):
+def test_clear_history_endpoint_deletes_records_and_preserves_current_output(api_client, command_catalog):
     from io import StringIO
 
     repo = Repo()
     catalog = repo.save_catalog("v1", command_catalog)
     service = MoltService(MoltProcess("/unused"), repo, catalog=command_catalog)
     original = service.import_log(StringIO("saved output\n"))
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         response = client.delete("/api/history")
         assert response.status_code == 200
         assert response.json() == {"deleted": 1}
@@ -323,7 +321,7 @@ def test_clear_history_endpoint_deletes_records_and_preserves_current_output(com
         assert client.delete("/api/history").json() == {"deleted": 0}
 
 
-def test_delete_single_history_record_cascades_output_and_preserves_other_records(command_catalog, tmp_path):
+def test_delete_single_history_record_cascades_output_and_preserves_other_records(api_client, command_catalog, tmp_path):
     from io import StringIO
 
     repo = Repo(str(tmp_path / "history.sqlite3"))
@@ -334,7 +332,7 @@ def test_delete_single_history_record_cascades_output_and_preserves_other_record
     logfile = tmp_path / "saved.log"
     logfile.write_text("keep this log file\n")
     repo.update_run(second.record.id, status="imported", log_file=str(logfile))
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         assert client.delete(f"/api/history/{first.record.id}").json() == {"deleted": 1}
         assert client.get(f"/api/history/{first.record.id}").status_code == 404
         assert client.get(f"/api/history/{first.record.id}/output").status_code == 404
@@ -347,3 +345,27 @@ def test_delete_single_history_record_cascades_output_and_preserves_other_record
         assert client.get("/api/history").json() == []
         assert logfile.read_text() == "keep this log file\n"
         assert repo.get_catalog() == catalog
+
+
+def test_lifespan_creates_a_fresh_service_and_closes_it_on_error(monkeypatch):
+    import pytest
+    from fastapi.testclient import TestClient
+    from molt_ui.api.app import app
+
+    first, second = Mock(spec=MoltService), Mock(spec=MoltService)
+    first.help.side_effect = RuntimeError("unexpected failure")
+    second.help.return_value = CommandResult(stdout="restarted", stderr="", returncode=0)
+    create_service = Mock(side_effect=[first, second])
+    monkeypatch.setattr("molt_ui.api.app.create_service", create_service)
+
+    with pytest.raises(RuntimeError, match="unexpected failure"):
+        with TestClient(app) as client:
+            create_service.assert_called_once_with()
+            first.close.assert_not_called()
+            client.post("/api/cli/help")
+    first.close.assert_called_once_with()
+
+    with TestClient(app) as client:
+        assert client.post("/api/cli/help").json()["stdout"] == "restarted"
+    second.close.assert_called_once_with()
+    assert create_service.call_count == 2

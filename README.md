@@ -2,13 +2,12 @@
 
 <img src="resources/media/logo.png" alt="Molt UI mascot" width="96" height="96">
 
-A web and terminal interface for `molt`, the database migration tool for
-CockroachDB. Configure migrations, follow progress, and inspect results from the
-interface that suits your workflow.
+A web interface for `molt`, the database migration tool for CockroachDB.
+Configure migrations, follow progress, and inspect results in your browser.
 
 ## Features
 
-- Run Molt commands through a web app or terminal UI.
+- Run Molt commands through a web app.
 - Configure commands with a guided, tabbed wizard.
 - View live logs with per-table statistics and status.
 - View live charts based on Molt's Grafana dashboard, with schema, table,
@@ -35,7 +34,7 @@ pipx ensurepath
 ```
 
 Open a new terminal after `pipx ensurepath`. pipx installs the app in an isolated
-environment and makes both `molt-web` and `molt-tui` available on your `PATH`.
+environment and makes `molt-web` available on your `PATH`.
 
 Make the Go `molt` executable available on your `PATH`, or set its absolute path:
 
@@ -54,13 +53,14 @@ molt-web
 Open <http://127.0.0.1:8000>. Select **Configure command** to choose an operation,
 enter your connections, and review the command before clicking **Run**.
 
-### Start the terminal interface
-
-To use the terminal interface instead:
-
-```sh
-molt-tui
-```
+Choose a listen address and port with `molt-web --host 127.0.0.1 --port 8080`.
+Use `molt-web --reload` to restart the server when source files change during development.
+Additional Uvicorn options can be passed as `--key=value` or `--key value`, for
+example `molt-web --log-level=debug`. Hyphens in option names become underscores;
+additional values are forwarded as strings.
+Run `molt-web --help` to see available options. From a source checkout, you can
+also use `python -m molt_ui.main`. The FastAPI app is available at
+`molt_ui.api.app:app` for direct use with Uvicorn.
 
 ## Table progress
 
@@ -136,12 +136,6 @@ Older database schemas are not automatically upgraded; use a fresh
 Select **Review logs** in the web app to import an existing log file. For a quick
 tour without running a migration, select **Review logs → Load sample log**.
 Imported logs use the same table statistics and output views as live runs.
-
-You can also open a saved log directly in the terminal interface:
-
-```sh
-molt-tui --log /path/to/fetch.jsonl
-```
 
 ## Command catalog
 

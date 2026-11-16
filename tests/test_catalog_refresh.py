@@ -146,9 +146,7 @@ def test_startup_injects_catalog_from_configured_binary_and_database(monkeypatch
     repo.close()
 
 
-def test_restart_uses_sqlite_catalog_when_binary_is_unavailable(command_catalog, monkeypatch, tmp_path, caplog):
-    from fastapi.testclient import TestClient
-    from molt_ui.frontends.api.app import create_app
+def test_restart_uses_sqlite_catalog_when_binary_is_unavailable(api_client, command_catalog, monkeypatch, tmp_path, caplog):
 
     settings = Settings(executable="/missing/molt", database=str(tmp_path / "startup.sqlite3"))
     repo = Repo(settings.database)
@@ -161,20 +159,18 @@ def test_restart_uses_sqlite_catalog_when_binary_is_unavailable(command_catalog,
     assert service.commands() == command_catalog.commands
     assert "using the saved catalog" in caplog.text
     assert "binary unavailable" in caplog.text
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         assert client.get("/api/commands").status_code == 200
 
 
-def test_first_launch_without_binary_keeps_imports_and_history_available(monkeypatch, tmp_path):
-    from fastapi.testclient import TestClient
-    from molt_ui.frontends.api.app import create_app
+def test_first_launch_without_binary_keeps_imports_and_history_available(api_client, monkeypatch, tmp_path):
 
     process = Mock()
     process.run.side_effect = MoltError("binary unavailable")
     monkeypatch.setattr(bootstrap, "MoltProcess", Mock(return_value=process))
     settings = Settings(executable="/missing/molt", database=str(tmp_path / "startup.sqlite3"))
     service = bootstrap.create_service(settings)
-    with TestClient(create_app(service)) as client:
+    with api_client(service) as client:
         response = client.get("/api/commands")
         assert response.status_code == 503
         assert "MOLT_EXECUTABLE" in response.json()["detail"]

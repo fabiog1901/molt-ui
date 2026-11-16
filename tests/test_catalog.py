@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from molt_ui import catalog_update as generator
 from molt_ui.core.models import CommandCatalog, CommandResult
-from molt_ui.frontends.models import CommandDefinition
+from molt_ui.api.models import CommandDefinition
 
 HELP = '''Flags:
       --logging string       Logging level (default "info")

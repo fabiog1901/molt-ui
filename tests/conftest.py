@@ -95,3 +95,16 @@ def repository_clock(monkeypatch):
     start = datetime(2026, 11, 12, tzinfo=timezone.utc)
     monkeypatch.setattr('molt_ui.repo.repo.timestamp',
                         lambda: (start + timedelta(seconds=next(ticks))).strftime('%Y-%m-%dT%H.%M.%SZ'))
+
+
+@pytest.fixture
+def api_client(monkeypatch):
+    """Exercise the real app lifespan with an isolated service for each client."""
+    from fastapi.testclient import TestClient
+    from molt_ui.api.app import app
+
+    def client_for(service):
+        monkeypatch.setattr("molt_ui.api.app.create_service", lambda: service)
+        return TestClient(app)
+
+    return client_for

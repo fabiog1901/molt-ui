@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from molt_ui.core.models import CommandResult, LogEntry, OutputEvent, TableProgress
-from molt_ui.frontends.models import CommandDefinition, StartCommand
+from molt_ui.api.models import CommandDefinition, StartCommand
 
 
 def test_frontend_mapping_adds_display_metadata_without_changing_core_models(command_catalog):

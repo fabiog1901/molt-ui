@@ -25,7 +25,7 @@ def test_external_io_imports_are_confined_to_their_adapters():
                 for module in modules
             ):
                 assert path == root / "repo/repo.py"
-        if path.is_relative_to(root / "frontends"):
+        if path.is_relative_to(root / "api"):
             for node in ast.walk(tree):
                 if isinstance(node, ast.Attribute) and node.attr in {
                     "jobs",
@@ -42,4 +42,4 @@ def test_external_io_imports_are_confined_to_their_adapters():
                         and node.value.attr == "service"
                     )
         if path.is_relative_to(root / "core"):
-            assert "molt_ui.frontends" not in path.read_text()
+            assert "molt_ui.api" not in path.read_text()
