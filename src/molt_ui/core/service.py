@@ -267,7 +267,7 @@ class MoltService:
         self, record_id: str, *, before: int | None = None, limit: int = 2000
     ) -> tuple[HistoryOutput, LogAggregator]:
         record = self._repo.get_run(record_id)
-        aggregation = LogAggregator()
+        aggregation = LogAggregator(direct_copy=record.options.get("direct-copy") is True)
         events = deque(maxlen=limit)
         total = 0
         for event in self._repo.iter_run_output(record_id):

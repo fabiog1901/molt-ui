@@ -191,6 +191,38 @@ def test_aliases_errors_and_global_messages_are_handled_without_worker_guessing(
     assert aggregator.table_logs("new.actor")["name"] == "old.actor"
 
 
+@pytest.mark.parametrize("from_config", [False, True])
+def test_direct_copy_counts_only_successful_table_completion(from_config):
+    aggregator = LogAggregator(direct_copy=not from_config)
+    if from_config:
+        feed(aggregator, message="fetch.configuration", mode="DataLoad", storage_type="copy_direct")
+    feed(aggregator, source_table="old.actor", target_table="new.actor")
+    feed(aggregator, table="old.actor", num_rows=200, message="data extraction from source complete")
+    assert aggregator.snapshot()["totals"]["imported"] == 0
+    for _ in range(2):
+        feed(aggregator, table_name="new.actor", event_name="fetch.table.complete", rows=200, success=True)
+    feed(aggregator, table_name="public.empty", message="fetch.table.complete", rows=0, success=True)
+    for success in (False, None, "true"):
+        feed(aggregator, table_name="public.failed", message="fetch.table.complete", rows=100, success=success)
+    feed(aggregator, table_name="public.invalid", message="fetch.table.complete", rows=True, success=True)
+    snapshot = aggregator.snapshot()
+    assert snapshot["totals"]["imported"] == snapshot["totals"]["exported"] == 200
+    rows = {row["name"]: row for row in snapshot["tables"]}
+    assert rows["old.actor"]["imported"] == 200
+    assert rows["old.actor"]["phase"] == "imported"
+    assert rows["public.empty"]["imported"] == 0
+    assert rows["public.failed"]["imported"] is None
+    assert rows["public.invalid"]["imported"] is None
+
+
+@pytest.mark.parametrize("storage_type,mode", [("local", "DataLoad"), ("copy_direct", "ExportOnly")])
+def test_other_modes_do_not_infer_imports_from_table_completion(storage_type, mode):
+    aggregator = LogAggregator()
+    feed(aggregator, message="fetch.configuration", storage_type=storage_type, mode=mode)
+    feed(aggregator, table_name="public.actor", message="fetch.table.complete", rows=200, success=True)
+    assert aggregator.snapshot()["tables"][0]["imported"] is None
+
+
 def test_detail_retention_is_globally_bounded_but_counts_cover_all_lines():
     aggregator = LogAggregator()
     for index in range(10000):

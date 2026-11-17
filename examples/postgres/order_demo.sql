@@ -105,18 +105,38 @@ CREATE TABLE orders (
     CHECK (paid_at IS NULL OR paid_at >= placed_at)
 ) PARTITION BY HASH (order_id);
 
-DO $$
-BEGIN
-    FOR partition_number IN 0..15 LOOP
-        EXECUTE format(
-            'CREATE TABLE order_demo.%I PARTITION OF order_demo.orders '
-            'FOR VALUES WITH (MODULUS 16, REMAINDER %s)',
-            'orders_p' || lpad(partition_number::text, 2, '0'),
-            partition_number
-        );
-    END LOOP;
-END;
-$$;
+CREATE TABLE order_demo.orders_p00 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+CREATE TABLE order_demo.orders_p01 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+CREATE TABLE order_demo.orders_p02 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+CREATE TABLE order_demo.orders_p03 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+CREATE TABLE order_demo.orders_p04 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+CREATE TABLE order_demo.orders_p05 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+CREATE TABLE order_demo.orders_p06 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+CREATE TABLE order_demo.orders_p07 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+CREATE TABLE order_demo.orders_p08 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+CREATE TABLE order_demo.orders_p09 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+CREATE TABLE order_demo.orders_p10 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+CREATE TABLE order_demo.orders_p11 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+CREATE TABLE order_demo.orders_p12 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+CREATE TABLE order_demo.orders_p13 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+CREATE TABLE order_demo.orders_p14 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+CREATE TABLE order_demo.orders_p15 PARTITION OF order_demo.orders
+    FOR VALUES WITH (MODULUS 16, REMAINDER 15);
 
 -- Indexes declared on the parent are created on each partition.
 CREATE INDEX orders_customer_placed_idx ON orders (customer_id, placed_at DESC);

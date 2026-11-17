@@ -39,7 +39,7 @@ def test_exact_credentials_and_invocation_roundtrip_storage(command_catalog, tmp
     }
     plan = service.preview("fetch", options)
     assert source in plan.invocation
-    assert shlex.split(plan.invocation)[0] == "MOLT_SOURCE=" + source
+    assert "--source=" + source in shlex.split(plan.invocation)
     with patch(
         "molt_ui.molt_process.subprocess.Popen",
         side_effect=FileNotFoundError("missing binary"),
@@ -48,7 +48,8 @@ def test_exact_credentials_and_invocation_roundtrip_storage(command_catalog, tmp
             service.start("fetch", options)
     saved = Repo(path).list_runs()[0]
     assert saved.invocation == plan.invocation
-    assert saved.environment["MOLT_SOURCE"] == source
+    assert "MOLT_SOURCE" not in saved.environment
+    assert "--source=" + source in saved.argv
     assert saved.argv == list(plan.argv)
     assert saved.options == options
     assert saved.status == "launch_failed"
@@ -297,12 +298,13 @@ def test_service_instances_keep_separate_injected_catalogs():
 
     first_catalog = catalog_for("MOLT_FIRST")
     second_catalog = catalog_for("MOLT_SECOND")
-    first = MoltService(MoltProcess("molt"), Repo(), catalog=first_catalog, environment={})
-    second = MoltService(MoltProcess("molt"), Repo(), catalog=second_catalog, environment={})
+    environment = {"MOLT_FIRST": "one", "MOLT_SECOND": "two"}
+    first = MoltService(MoltProcess("molt"), Repo(), catalog=first_catalog, environment=environment)
+    second = MoltService(MoltProcess("molt"), Repo(), catalog=second_catalog, environment=environment)
     assert first.commands() == first_catalog.commands
     assert second.commands() == second_catalog.commands
-    assert first.preview("future", {"connection": "one"}).environment == {"MOLT_FIRST": "one"}
-    assert second.preview("future", {"connection": "two"}).environment == {"MOLT_SECOND": "two"}
+    assert first.preview("future", {}).environment == {"MOLT_FIRST": "one"}
+    assert second.preview("future", {}).environment == {"MOLT_SECOND": "two"}
     first.close()
     second.close()
 

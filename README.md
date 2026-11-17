@@ -12,7 +12,7 @@ Configure migrations, follow progress, and inspect results in your browser.
 - View live logs with per-table statistics and status.
 - View live charts based on Molt's Grafana dashboard, with schema, table,
   and shard filters.
-- Resize, minimize, or maximize the output pane.
+- Search and filter logs by level and stream in the Output tab.
 - Save job history locally in SQLite.
 - Review past jobs and reconstruct their table summaries.
 - Re-run saved commands with editable settings.
@@ -69,8 +69,11 @@ warnings, and status for each table. Filter by table name and expand a table to
 inspect its recent log entries. Totals include the full received log, even when
 older lines have left the live output buffer.
 
-The output pane shows live logs independently of the table view. Resize,
-minimize, or maximize it, switch to raw JSON, or pause following the latest lines.
+Select **Output**, beside **Command details**, **Table progress**, and **Charts**, to
+inspect logs. Search messages and structured fields, filter by minimum log level
+and stream, switch to raw JSON, or pause following the latest lines. Reset filters
+to see all loaded lines. For saved runs, filters apply to the loaded page; use
+**Older page** and **Latest page** at the bottom to browse the rest.
 
 ## Charts
 
@@ -98,7 +101,8 @@ precedence. Configure these options in the command wizard's **Metrics** tab.
 
 ## Run summary
 
-Open **Command details** for a current or saved run to see its **Run summary**:
+Select the **Command details** tab to see the **Run summary**. This tab opens
+by default when you select a history item and shows:
 status, start and finish times, exit code, and available duration, table, and
 error metrics. Fetch runs also include a table breakdown of total, export, and
 import timings and data errors. These values describe the run as a whole and

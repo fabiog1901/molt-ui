@@ -2,16 +2,19 @@ import asyncio
 import io
 from contextlib import asynccontextmanager
 from importlib.resources import files
-from tempfile import SpooledTemporaryFile
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from tempfile import NamedTemporaryFile, SpooledTemporaryFile
 from typing import Annotated
 from urllib.parse import unquote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from molt_ui.api.models import CommandDefinition, StartCommand
 from molt_ui.bootstrap import create_service
+from molt_ui.config import Settings
 from molt_ui.core.errors import MoltError, RunConflict
 from molt_ui.core.models import (
     CommandPlan,
@@ -24,6 +27,10 @@ from molt_ui.core.models import (
 from molt_ui.core.service import MoltService
 
 WEBAPP_DIRECTORY = files("molt_ui.webapp")
+try:
+    APP_VERSION = version("molt-ui")
+except PackageNotFoundError:
+    APP_VERSION = "0+unknown"
 
 
 @asynccontextmanager
@@ -56,6 +63,38 @@ async def operation_error(request: Request, exc: MoltError):
 @app.get("/api/commands", response_model_exclude_unset=True)
 def commands(service: Service) -> list[CommandDefinition]:
     return [CommandDefinition.from_spec(item) for item in service.commands()]
+
+
+MAX_COMMAND_FILE_SIZE = 32 * 1024 * 1024
+
+
+@app.post("/api/command-files", status_code=201)
+async def upload_command_file(request: Request) -> dict[str, str]:
+    """Keep uploaded inputs alongside the database so saved runs can reuse them."""
+    database = Settings.from_environment().database
+    storage = Path(database).expanduser().resolve().parent if database != ":memory:" else Path.cwd() / ".data"
+    directory = storage / "command-files"
+    filename = Path(unquote(request.headers.get("X-Filename", "input")).replace("\\", "/")).name
+    filename = filename[:120] if filename not in {"", ".", ".."} else "input"
+    uploaded_path = None
+    complete = False
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with NamedTemporaryFile(dir=directory, prefix="input-", suffix="-" + filename, delete=False) as upload:
+            uploaded_path = Path(upload.name)
+            size = 0
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_COMMAND_FILE_SIZE:
+                    raise HTTPException(status_code=413, detail="Command files are limited to 32 MiB.")
+                await asyncio.to_thread(upload.write, chunk)
+        complete = True
+        return {"path": str(uploaded_path)}
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Could not save the selected file.") from exc
+    finally:
+        if uploaded_path is not None and not complete:
+            uploaded_path.unlink(missing_ok=True)
 
 
 @app.post("/api/jobs", status_code=201)
@@ -246,8 +285,10 @@ def history_metrics(
 
 
 @app.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(WEBAPP_DIRECTORY / "index.html")
+def index() -> HTMLResponse:
+    return HTMLResponse(
+        (WEBAPP_DIRECTORY / "index.html").read_text().replace("__APP_VERSION__", APP_VERSION)
+    )
 
 
 app.mount("/static", StaticFiles(directory=WEBAPP_DIRECTORY / "static"), name="static")

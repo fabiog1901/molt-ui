@@ -35,7 +35,9 @@ class Run:
         self._sequence = 0
         self._status = "imported" if imported else "running"
         self._returncode: int | None = None
-        self._aggregation = LogAggregator()
+        self._aggregation = LogAggregator(
+            direct_copy=bool(record and record.options.get("direct-copy") is True)
+        )
         self._record = record
         self._on_output = on_output
         self._on_complete = on_complete

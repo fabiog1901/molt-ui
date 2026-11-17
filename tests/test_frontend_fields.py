@@ -163,3 +163,24 @@ def test_conversion_modal_uses_actual_catalog_defaults(command_catalog):
     fields = {option.name: option for option in CommandDefinition.from_spec(specification).options}
     for option in specification.options:
         assert fields[option.name].default == option.default
+
+
+@pytest.mark.parametrize("name, kind, expected", [
+    ("transformations-file", "string", True),
+    ("schema", "string", True),
+    ("out", "string", False),
+    ("log-file", "string", False),
+    ("dropped-constraints-file", "string", False),
+    ("dropped-indexes-file", "string", False),
+    ("local-path", "string", False),
+    ("source-oracle-wallet-location", "string", False),
+    ("bucket-path", "string", False),
+    ("source", "string", False),
+    ("use-file", "bool", False),
+])
+def test_native_file_picker_metadata(name, kind, expected):
+    from molt_ui.api.models import CommandOption
+    from molt_ui.core.models import OptionSpec
+
+    option = OptionSpec(name=name, kind=kind, description=name, default=False if kind == "bool" else "")
+    assert CommandOption.from_spec(option, "future", environment={}).file_input == expected

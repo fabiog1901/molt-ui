@@ -2,22 +2,20 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('cliApp', () => ({
     commands: [], command: 'fetch', values: {}, advanced: false,
     job: null, events: [], cursor: 0, error: '', busy: false,
-    timer: null, polling: false, truncated: false, outputCleared: false,
+    timer: null, polling: false, truncated: false,
     aggregation: {totals: {}, tables: []}, tableFilter: '', tablePage: 1,
     expandedTable: '', tableDetail: null, detailError: '', detailLoading: false,
-    rawOutput: false, followOutput: true,
+    rawOutput: false, followOutput: true, outputSearch: '', outputLevel: '', outputStream: '',
     historyOpen: true, historyLoaded: false,
-    outputHeight: 240, outputCollapsed: false, outputMaximized: false, resizingOutput: false,
-    resizeStartY: 0, resizeStartHeight: 240, resizePointer: null,
     steps: ['Operation', 'Connections', 'Common options', 'Advanced', 'Logging', 'Metrics', 'Review'],
     stages: ['operation', 'connections', 'common', 'advanced', 'logging', 'metrics', 'review'],
     step: 0, preview: null, wizardError: '', wizardHelpOnly: false, advancedSearch: '', prunedOptions: [],
     history: [], historyBusy: false, historyError: '', selectedRecord: null, copyMessage: '',
     historyOutput: null, historyOutputError: '', historyOutputLoading: false, historyBefore: null,
-    historyOutputCleared: false, historyOutputRequest: 0,
+    historyOutputRequest: 0,
     sourceKind: '',
     previousLogLevel: 'info',
-    overviewView: 'tables',
+    overviewView: 'details',
 
     get reviewingHistory() { return Boolean(this.selectedRecord); },
     get displayedRecord() { return this.reviewingHistory ? this.selectedRecord : this.job?.record; },
@@ -26,29 +24,16 @@ document.addEventListener('alpine:init', () => {
     get showingSavedOutput() { return this.reviewingHistory && !(this.running && this.selectedRecord.id === this.job?.record?.id); },
     get outputEvents() { return this.showingSavedOutput ? (this.historyOutput?.events || []) : this.events; },
     get outputCursor() { return this.showingSavedOutput ? (this.historyOutput?.total || 0) : this.cursor; },
-    get displayedOutputCleared() { return this.showingSavedOutput ? this.historyOutputCleared : this.outputCleared; },
-    get outputContext() {
-      if (this.showingSavedOutput) return this.selectedRecord.command + ' · saved ' + (this.historyOutput?.source === 'file' ? 'log file' : 'output');
-      return this.job ? this.job.command + ' · ' + this.job.status : 'No command running';
-    },
-    closeHistory() {
-      this.historyOpen = false;
-      this.$nextTick?.(() => this.$refs?.historyHandle?.focus());
-    },
-    showCurrentSession() {
-      this.selectedRecord = null; this.copyMessage = '';
-      this.historyOutputRequest++;
-      this.historyOutput = null; this.historyOutputError = ''; this.historyOutputLoading = false;
-      this.expandedTable = ''; this.tableDetail = null; this.detailError = ''; this.detailLoading = false;
-      this.tableFilter = ''; this.tablePage = 1;
-      if (!this.running) this.resetSession();
-    },
+    get hasJobDetails() { return Boolean(this.selectedRecord || this.job); },
+    get statusRecord() { return this.selectedRecord || this.job; },
+    toggleHistory() { this.historyOpen = !this.historyOpen; },
     async reviewRecord(record) {
-      this.selectedRecord = record; this.copyMessage = '';
-      this.historyOutput = null; this.historyOutputError = ''; this.historyOutputCleared = false;
+      this.selectedRecord = record; this.copyMessage = ''; this.overviewView = 'details';
+      this.historyOutput = null; this.historyOutputError = '';
       this.historyBefore = null;
       this.expandedTable = ''; this.tableDetail = null; this.detailError = ''; this.detailLoading = false;
       this.tableFilter = ''; this.tablePage = 1;
+      this.resetOutputFilters();
       if (this.showingSavedOutput) await this.loadHistoryOutput();
     },
     async loadHistoryOutput(before = null) {
@@ -58,7 +43,7 @@ document.addEventListener('alpine:init', () => {
       try {
         const page = await this.request(`/api/history/${encodeURIComponent(recordId)}/output${before === null ? '' : '?before=' + before}`);
         if (this.selectedRecord?.id !== recordId || requestId !== this.historyOutputRequest) return;
-        this.historyOutput = page; this.historyBefore = before; this.historyOutputCleared = false;
+        this.historyOutput = page; this.historyBefore = before;
         if (this.followOutput) this.scrollOutputToEnd();
       } catch (error) {
         if (this.selectedRecord?.id === recordId && requestId === this.historyOutputRequest) this.historyOutputError = error.message;
@@ -66,59 +51,21 @@ document.addEventListener('alpine:init', () => {
         if (requestId === this.historyOutputRequest) this.historyOutputLoading = false;
       }
     },
-    outputMaxHeight() {
-      const height = globalThis.innerHeight || 800;
-      return Math.max(80, Math.min(Math.floor(height * .6), height - 260));
+    get visibleOutputEvents() {
+      const search = this.outputSearch.trim().toLowerCase();
+      const levels = {trace: 0, debug: 1, info: 2, warn: 3, warning: 3, error: 4, fatal: 5, panic: 6};
+      return this.outputEvents.filter(event => {
+        if (this.outputStream && event.stream !== this.outputStream) return false;
+        if (this.outputLevel && (levels[this.logLevel(event)] ?? 2) < levels[this.outputLevel]) return false;
+        return !search || `${event.text || ''} ${this.formatEvent(event)}`.toLowerCase().includes(search);
+      });
     },
-    fitOutput() { this.outputHeight = Math.min(this.outputMaxHeight(), Math.max(80, this.outputHeight)); },
-    setOutputHeight(height) {
-      this.outputMaximized = false;
-      this.outputCollapsed = false;
-      this.outputHeight = height;
-      this.fitOutput();
-      if (this.followOutput) this.scrollOutputToEnd();
-    },
-    resizeOutputBy(delta) { this.setOutputHeight(this.outputHeight + delta); },
-    toggleOutput() {
-      this.outputMaximized = false;
-      this.outputCollapsed = !this.outputCollapsed;
-      if (!this.outputCollapsed) { this.fitOutput(); if (this.followOutput) this.scrollOutputToEnd(); }
-    },
-    toggleOutputMaximized() {
-      this.outputMaximized = !this.outputMaximized;
-      this.outputCollapsed = false;
-      this.resizingOutput = false;
-      if (!this.outputMaximized) this.fitOutput();
-      if (this.followOutput) this.scrollOutputToEnd();
-    },
-    beginOutputResize(event) {
-      if (this.outputMaximized) return;
-      if (event.button !== undefined && event.button !== 0) return;
-      if (this.outputCollapsed) this.setOutputHeight(80);
-      this.resizingOutput = true;
-      this.resizeStartY = event.clientY; this.resizeStartHeight = this.outputHeight;
-      this.resizePointer = event.pointerId;
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    moveOutputResize(event) {
-      if (!this.resizingOutput || event.pointerId !== this.resizePointer) return;
-      this.setOutputHeight(this.resizeStartHeight + this.resizeStartY - event.clientY);
-    },
-    endOutputResize(event) {
-      if (event.pointerId !== this.resizePointer) return;
-      this.resizingOutput = false;
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-      this.resizePointer = null;
-    },
-    clearOutput() {
-      if (this.showingSavedOutput) {
-        if (this.historyOutput) this.historyOutput = {...this.historyOutput, events: []};
-        this.historyOutputCleared = true;
-        return;
-      }
-      this.events = [];
-      this.truncated = false;
-      this.outputCleared = true;
+    get outputFiltersActive() { return Boolean(this.outputSearch || this.outputLevel || this.outputStream); },
+    resetOutputFilters() { this.outputSearch = ''; this.outputLevel = ''; this.outputStream = ''; },
+    cycleOverview(direction) {
+      const views = ['details', 'tables', 'charts', 'output'];
+      this.overviewView = views[(views.indexOf(this.overviewView) + direction + views.length) % views.length];
+      this.$nextTick?.(() => this.$root?.querySelector('#' + this.overviewView + '-tab')?.focus());
     },
     logLevel(event) { return String(event.data?.level || 'info').toLowerCase(); },
     showLogEmoji(event) { return Object.hasOwn(event.data ?? {}, 'level'); },
@@ -128,12 +75,17 @@ document.addEventListener('alpine:init', () => {
         error: '❌', fatal: '💥', panic: '🚨'})[this.logLevel(event)] || '🔹';
     },
     scrollOutputToEnd() {
-      if (!this.$refs?.output) return;
-      this.$nextTick(() => { const panel = this.$refs?.output; if (panel) panel.scrollTop = panel.scrollHeight; });
+      this.$nextTick?.(() => {
+        const afterPaint = globalThis.requestAnimationFrame || (callback => callback());
+        afterPaint(() => {
+          const panel = this.$refs?.output || this.$root?.querySelector('#output-log');
+          if (panel) panel.scrollTop = panel.scrollHeight;
+        });
+      });
     },
     outputScrolled() {
-      if (this.outputCollapsed || this.showingSavedOutput) return;
-      const panel = this.$refs?.output;
+      if (this.overviewView !== 'output' || this.showingSavedOutput) return;
+      const panel = this.$refs?.output || this.$root?.querySelector('#output-log');
       if (panel) this.followOutput = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80;
     },
 
@@ -181,6 +133,18 @@ document.addEventListener('alpine:init', () => {
     inputType(option) {
       if (['source', 'target'].includes(option.name)) return 'text';
       return option.secret ? 'password' : 'text';
+    },
+    async uploadOptionFile(option, file) {
+      if (!file || this.busy || this.running) return;
+      this.busy = true; this.wizardError = ''; this.preview = null;
+      try {
+        const uploaded = await this.request('/api/command-files', {
+          method: 'POST', headers: {'Content-Type': 'application/octet-stream',
+            'X-Filename': encodeURIComponent(file.name)}, body: file,
+        });
+        this.setOption(option, uploaded.path);
+      } catch (error) { this.wizardError = error.message; }
+      finally { this.busy = false; }
     },
     fieldValue(option) {
       const value = this.values[option.name];
@@ -257,7 +221,10 @@ document.addEventListener('alpine:init', () => {
       try {
         this.history = await this.request('/api/history');
         this.historyLoaded = true;
-        if (this.selectedRecord) this.selectedRecord = this.history.find(record => record.id === this.selectedRecord.id) || this.selectedRecord;
+        const selected = this.history.find(record => record.id === this.selectedRecord?.id);
+        if (selected) this.selectedRecord = selected;
+        else if (this.history.length) await this.reviewRecord(this.history[0]);
+        else if (!this.running) this.resetSession();
       }
       catch (error) { this.historyError = error.message; }
       finally { this.historyBusy = false; }
@@ -269,7 +236,10 @@ document.addEventListener('alpine:init', () => {
         await this.request(`/api/history/${encodeURIComponent(record.id)}`, {method: 'DELETE'});
         this.history = this.history.filter(item => item.id !== record.id);
         if (this.job?.record?.id === record.id) this.job.record = null;
-        if (this.selectedRecord?.id === record.id) this.showCurrentSession();
+        if (this.selectedRecord?.id === record.id) {
+          if (this.history.length) await this.reviewRecord(this.history[0]);
+          else this.resetSession();
+        }
       } catch (error) { this.historyError = error.message; }
       finally { this.historyBusy = false; }
     },
@@ -278,10 +248,8 @@ document.addEventListener('alpine:init', () => {
       this.busy = true; this.historyBusy = true; this.historyError = '';
       try {
         await this.request('/api/history', {method: 'DELETE'});
-        this.history = []; this.selectedRecord = null; this.copyMessage = '';
-        this.historyOutputRequest++; this.historyOutput = null; this.historyOutputError = ''; this.historyOutputLoading = false;
-        this.historyLoaded = true;
-        if (this.job) this.job.record = null;
+        this.history = []; this.historyLoaded = true;
+        this.resetSession();
       } catch (error) { this.historyError = error.message; }
       finally { this.busy = false; this.historyBusy = false; }
     },
@@ -338,6 +306,25 @@ document.addEventListener('alpine:init', () => {
         this.openWizard(helpOnly);
       } catch (error) { this.error = error.message; }
     },
+    shellQuote(value) {
+      const text = String(value);
+      if (text && /^[A-Za-z0-9_@%+=:,./-]+$/.test(text) && !/^[a-z][a-z\d+.-]*:\/\//i.test(text)) return text;
+      return "'" + text.replaceAll("'", "'\"'\"'") + "'";
+    },
+    formatInvocation(record) {
+      if (!record?.argv?.length) return record?.invocation || '';
+      const lines = [Object.entries(record.environment || {}).map(([name, value]) =>
+        name + '=' + this.shellQuote(value)).concat(this.shellQuote(record.argv[0])).join(' ')];
+      for (const argument of record.argv.slice(1)) {
+        if (argument.startsWith('-')) {
+          const flag = /^(--[\w-]+)=(.*)$/s.exec(argument);
+          lines.push(flag ? flag[1] + '=' + this.shellQuote(flag[2]) : this.shellQuote(argument));
+        } else {
+          lines[lines.length - 1] += ' ' + this.shellQuote(argument);
+        }
+      }
+      return lines.join(' \\\n  ');
+    },
     async copyCommand(text) {
       try { await navigator.clipboard.writeText(text); this.copyMessage = 'Copied'; }
       catch { this.copyMessage = 'Select and copy the command below.'; }
@@ -377,8 +364,6 @@ document.addEventListener('alpine:init', () => {
     },
 
     async init() {
-      if ((globalThis.innerWidth || 1200) <= 600) this.outputHeight = 160;
-      this.fitOutput();
       try {
         this.commands = await this.request('/api/commands');
         if (!this.definition) this.command = this.commands[0]?.id || '';
@@ -412,10 +397,11 @@ document.addEventListener('alpine:init', () => {
       this.job = null; this.selectedRecord = null;
       this.historyOutputRequest++;
       this.historyOutput = null; this.historyOutputError = ''; this.historyOutputLoading = false;
-      this.events = []; this.cursor = 0; this.truncated = false; this.outputCleared = false;
+      this.events = []; this.cursor = 0; this.truncated = false;
       this.aggregation = {totals: {}, tables: []};
       this.expandedTable = ''; this.tableDetail = null; this.detailError = '';
       this.tableFilter = ''; this.tablePage = 1;
+      this.resetOutputFilters();
     },
     resetRun(snapshot) {
       this.resetSession();
@@ -475,8 +461,6 @@ document.addEventListener('alpine:init', () => {
       return body;
     },
     applySnapshot(snapshot) {
-      const panel = this.$refs?.output;
-      const follow = panel && this.followOutput && !this.outputCollapsed && !this.showingSavedOutput;
       if (this.selectedRecord && this.selectedRecord.id === this.job?.record?.id
           && snapshot.record && this.selectedRecord.id !== snapshot.record.id) {
         this.selectedRecord = snapshot.record;
@@ -486,9 +470,8 @@ document.addEventListener('alpine:init', () => {
       this.aggregation = snapshot.aggregation || {totals: {}, tables: []};
       this.truncated ||= snapshot.truncated || this.events.length + snapshot.events.length > 2000;
       this.events = [...this.events, ...snapshot.events].slice(-2000);
-      if (snapshot.events.length) this.outputCleared = false;
       this.cursor = snapshot.cursor;
-      if (follow) this.$nextTick(() => { panel.scrollTop = panel.scrollHeight; });
+      if (this.followOutput && !this.showingSavedOutput) this.scrollOutputToEnd();
     },
     async start(helpOnly = false) {
       if (this.running || this.busy) return;

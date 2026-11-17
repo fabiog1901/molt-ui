@@ -13,37 +13,21 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   </head>
   <body>
-    <main class="app-shell" x-data="cliApp" :class="{'resizing-output': resizingOutput}" @resize.window="fitOutput()">
-      <nav class="app-navbar" aria-label="Application navigation">
-        <a class="app-brand" href="/" aria-label="Molt UI home"><img class="app-logo" src="/static/media/logo.png" alt="" width="40" height="40"><span>Molt UI</span></a>
-        <div class="navbar-actions">
-          <label for="nav-command" class="sr-only">Command</label>
-          <select id="nav-command" x-model="command" x-effect="const selected = command; if (commands.length) $nextTick(() => { $el.value = selected })" @change="changeCommand" :disabled="running || busy || !commands.length" aria-label="Select command">
-            <template x-for="item in commands" :key="item.id"><option :value="item.id" x-text="item.label"></option></template>
-          </select>
-          <button type="button" id="configure-command" @click="openWizard" :disabled="running || busy || !commands.length">Configure<span class="desktop-label"> command</span></button>
-          <button type="button" class="secondary" id="review-logs" @click="$refs.importer.showModal()" :disabled="running || busy">Review logs</button>
-        </div>
-        <div class="navbar-status">
-          <span class="run-indicator" :class="{active: running}" aria-hidden="true"></span>
-          <span role="status" x-text="busy ? 'Working…' : (job ? job.status + (job.returncode !== null ? ' · exit ' + job.returncode : '') : 'Ready')"></span>
-          <button type="button" class="stop" @click="stop" :disabled="!running">Stop</button>
-        </div>
-      </nav>
-      <div class="app-error error-banner" role="alert" x-show="error" x-cloak>
-        <span x-text="error"></span><button type="button" class="secondary" @click="error = ''" aria-label="Dismiss message">✕</button>
-      </div>
+    <main class="app-shell" x-data="cliApp">
       <div class="app-workspace" :class="{'history-open': historyOpen}">
-        <button type="button" class="history-drawer-handle" id="history-drawer-handle" x-ref="historyHandle" x-show="!historyOpen" @click="historyOpen = true; $nextTick(() => $refs.historyClose.focus())" :aria-expanded="historyOpen" aria-controls="history-sidebar" aria-label="Open history drawer" title="Open history"><span aria-hidden="true">›</span><span class="history-drawer-label" aria-hidden="true">History</span></button>
-        <aside class="history-sidebar" id="history-sidebar" aria-labelledby="history-heading" :aria-hidden="!historyOpen" :inert="!historyOpen">
-          <div class="sidebar-heading"><h2 id="history-heading">History</h2><div class="history-actions"><button type="button" class="secondary clear-history" id="clear-history" @click="clearHistory" :disabled="running || busy || historyBusy || !history.length" aria-label="Clear saved history" title="Delete all saved job records">Clear</button><button type="button" class="secondary icon-button" id="close-history-drawer" x-ref="historyClose" @click="closeHistory" aria-label="Close history drawer" title="Close history">‹</button><button type="button" class="secondary icon-button" @click="refreshHistory" :disabled="historyBusy" aria-label="Refresh history" title="Refresh history">↻</button></div></div>
-          <button type="button" class="current-session secondary" @click="showCurrentSession" :aria-pressed="!reviewingHistory"><span class="run-indicator" :class="{active: running}" aria-hidden="true"></span> Current session</button>
-          <p class="history-error error" role="alert" x-show="historyError" x-text="historyError"></p>
-          <div class="history-list" aria-label="Saved command records">
+        <aside class="history-sidebar" id="history-sidebar" aria-label="Sidebar">
+          <div class="sidebar-brand"><a class="app-brand" href="/" aria-label="Molt UI home"><img class="app-logo" src="/static/media/logo.png" alt="" width="40" height="40"><span class="sidebar-label">Molt UI</span></a></div>
+          <nav class="sidebar-actions" aria-label="Job actions">
+            <button type="button" id="new-job" :class="{stop: running}" @click="running ? stop() : openWizard()" :disabled="busy || (!running && !commands.length)" :aria-label="running ? 'Stop job' : 'New Run'" :title="running ? 'Stop job' : 'New Run'"><svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path :d="running ? 'M5 5h14v14H5z' : 'M12 5v14M5 12h14'"></path></svg><span class="sidebar-label" x-text="running ? 'Stop' : 'New Run'">New Run</span></button>
+            <button type="button" class="secondary" id="review-logs" @click="$refs.importer.showModal()" :disabled="running || busy" aria-label="Review logs" title="Review logs"><svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"></path></svg><span class="sidebar-label">Review logs</span></button>
+          </nav>
+          <div class="sidebar-heading" x-show="historyOpen"><h2 id="history-heading">History</h2><div class="history-actions"><button type="button" class="secondary clear-history" id="clear-history" @click="clearHistory" :disabled="running || busy || historyBusy || !history.length" aria-label="Clear saved history" title="Delete all saved job records">Clear</button><button type="button" class="secondary icon-button" @click="refreshHistory" :disabled="historyBusy" aria-label="Refresh history" title="Refresh history">↻</button></div></div>
+          <p class="history-error error" x-show="historyOpen && historyError" role="alert" x-text="historyError"></p>
+          <div class="history-list" x-show="historyOpen" aria-label="Saved command records">
             <p class="hint empty-history" x-show="!history.length" x-text="historyBusy ? 'Loading history…' : 'Your command records will appear here.'"></p>
             <template x-for="record in history" :key="record.id">
               <div class="history-item">
-                <button type="button" class="history-entry secondary" @click="reviewRecord(record)" :aria-pressed="selectedRecord?.id === record.id">
+                <button type="button" class="history-entry secondary" @click="reviewRecord(record)" :aria-pressed="(selectedRecord?.id || job?.record?.id) === record.id">
                   <span class="history-entry-title" x-text="record.origin === 'import' ? 'Imported log' : record.command"></span>
                   <span class="status-badge" :class="record.status" x-text="record.status"></span>
                   <small x-text="formatTimestamp(record.id)"></small>
@@ -52,165 +36,183 @@
               </div>
             </template>
           </div>
-          <p class="sidebar-note hint">Commands and summaries are saved locally.</p>
+          <footer class="sidebar-footer"><span class="app-version" title="Molt UI v__APP_VERSION__">v__APP_VERSION__</span></footer>
         </aside>
-        <div class="main-content" x-data="moltCharts" x-effect="setContext(showingSavedOutput ? 'history' : 'jobs', showingSavedOutput ? selectedRecord?.id : job?.id, overviewView === 'charts' || detailsOpen, running && !showingSavedOutput)">
-          <section class="history-review" x-show="reviewingHistory" x-cloak aria-labelledby="record-heading">
-            <div class="section-heading saved-record-header">
-              <h1 id="record-heading" class="saved-record-title"><span class="record-status-icon" :class="selectedRecord?.status" role="img" :aria-label="'Status: ' + (selectedRecord?.status || 'unknown')" :title="selectedRecord?.status" x-text="({succeeded: '✓', failed: '✕', launch_failed: '✕', running: '↻', starting: '…', stopped: '■', interrupted: '!', imported: '↥'})[selectedRecord?.status] || '?' "></span><span x-text="selectedRecord?.origin === 'import' ? 'Imported log' : selectedRecord?.command"></span></h1>
-              <div class="record-actions">
-                <button type="button" id="rerun-history" title="Configure a new job using these saved options" x-show="canRerun(selectedRecord)" @click="rerunJob(selectedRecord)" :disabled="running || busy" x-text="busy ? 'Starting…' : 'Re-run command'"></button>
-                <button type="button" class="secondary" x-show="selectedRecord?.invocation" @click="copyCommand(selectedRecord.invocation)">Copy command</button>
-              </div>
+        <div class="job-workspace">
+          <header class="app-navbar" aria-label="Job navigation">
+            <button type="button" class="secondary icon-button sidebar-toggle" id="toggle-sidebar" @click="toggleHistory()" :aria-expanded="historyOpen" aria-controls="history-sidebar" :aria-label="historyOpen ? 'Collapse sidebar' : 'Expand sidebar'" :title="historyOpen ? 'Collapse sidebar' : 'Expand sidebar'"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg></button>
+            <div class="navbar-status">
+              <span class="run-indicator" :class="{active: running, succeeded: statusRecord?.status === 'succeeded'}" aria-hidden="true"></span>
+              <span role="status" :class="{healthy: statusRecord?.status === 'succeeded'}" x-text="busy ? 'Working…' : (statusRecord ? statusRecord.status + (statusRecord.returncode != null ? ' · exit ' + statusRecord.returncode : '') : 'Ready')"></span>
             </div>
-            <p class="hint" role="status" x-show="copyMessage" x-text="copyMessage"></p>
-            <p class="error" x-show="selectedRecord?.error" x-text="selectedRecord?.error"></p>
-          </section>
-          <details class="run-metadata" x-show="reviewingHistory || job" x-cloak @toggle="detailsOpen = $el.open">
-            <summary>Command details</summary>
-            <div class="run-metadata-body">
-              <article class="run-summary" aria-labelledby="run-summary-heading">
-                <header class="run-summary-heading"><div><h2 id="run-summary-heading">Run summary</h2><p class="hint">Timing, results, and table details for this run.</p></div><span class="status-badge" :class="displayedRecord?.status" x-text="displayedRecord?.status"></span></header>
-                <dl class="run-facts">
-                  <div x-show="displayedRecord?.id"><dt>Started</dt><dd x-text="formatTimestamp(displayedRecord?.id)"></dd></div>
-                  <div x-show="displayedRecord?.finished_at"><dt>Finished</dt><dd x-text="formatTimestamp(displayedRecord?.finished_at)"></dd></div>
-                  <div x-show="displayedRecord?.returncode !== null && displayedRecord?.returncode !== undefined"><dt>Exit code</dt><dd x-text="displayedRecord?.returncode"></dd></div>
-                  <template x-for="item in runOverview" :key="item.key"><div><dt x-text="item.label"></dt><dd :class="{'error': item.attention}" x-text="formatRunValue(item.value, item.unit)"></dd></div></template>
-                </dl>
-                <p class="hint run-summary-note" x-show="!runOverview.length">No metric samples are available for this run.</p>
-                <div class="run-table-section" x-show="runTablePanels.length">
-                  <h3>Table breakdown</h3>
-                  <div class="run-table-scroll" tabindex="0" aria-label="Table timings and data errors">
-                    <table class="run-table"><thead><tr><th scope="col">Table</th><template x-for="panel in runTablePanels" :key="panel.id"><th scope="col" x-text="panel.label"></th></template></tr></thead>
-                      <tbody><template x-for="row in runTableRows" :key="row.key"><tr><th scope="row" x-text="row.name"></th><template x-for="panel in runTablePanels" :key="panel.id"><td :class="{'error': panel.metric === 'molt_fetch_num_data_errors' && row.values[panel.id] > 0}" x-text="formatRunValue(row.values[panel.id], panel.unit)"></td></template></tr></template></tbody>
-                    </table>
-                  </div>
-                  <p class="hint run-summary-note" x-show="!runTableRows.length">Table timings will appear when samples are available.</p>
+          </header>
+          <div class="app-error error-banner" role="alert" x-show="error" x-cloak>
+            <span x-text="error"></span><button type="button" class="secondary" @click="error = ''" aria-label="Dismiss message">✕</button>
+          </div>
+          <div class="main-content" x-show="hasJobDetails" x-cloak x-data="moltCharts" x-effect="setContext(showingSavedOutput ? 'history' : 'jobs', showingSavedOutput ? selectedRecord?.id : job?.id, hasJobDetails && ['charts', 'details'].includes(overviewView), running && !showingSavedOutput)">
+            <section class="history-review" x-show="reviewingHistory" x-cloak aria-labelledby="record-heading">
+              <div class="section-heading saved-record-header">
+                <h1 id="record-heading" class="saved-record-title"><span class="record-status-icon" :class="selectedRecord?.status" role="img" :aria-label="'Status: ' + (selectedRecord?.status || 'unknown')" :title="selectedRecord?.status" x-text="({succeeded: '✓', failed: '✕', launch_failed: '✕', running: '↻', starting: '…', stopped: '■', interrupted: '!', imported: '↥'})[selectedRecord?.status] || '?' "></span><span x-text="selectedRecord?.origin === 'import' ? 'Imported log' : selectedRecord?.command"></span></h1>
+                <div class="record-actions">
+                  <button type="button" id="rerun-history" title="Configure a new job using these saved options" x-show="canRerun(selectedRecord)" @click="rerunJob(selectedRecord)" :disabled="running || busy" x-text="busy ? 'Starting…' : 'Re-run command'"></button>
+                  <button type="button" class="secondary" x-show="selectedRecord?.invocation" @click="copyCommand(formatInvocation(selectedRecord))">Copy command</button>
                 </div>
-                <details class="run-invocation"><summary>Invocation and log file</summary>
-                  <div class="metadata-invocation"><pre class="invocation" x-text="displayedRecord?.invocation || 'Imported log — no command was executed.'"></pre><button type="button" class="secondary" x-show="displayedRecord?.invocation" @click="copyCommand(displayedRecord.invocation)">Copy</button></div>
-                  <p class="hint" x-show="displayedRecord?.log_file">Log file: <code x-text="displayedRecord?.log_file"></code></p>
-                </details>
-              </article>
-            </div>
-          </details>
-          <section class="session-workspace" x-show="reviewingHistory || job" x-cloak aria-label="Job details">
-          <div class="workspace-toolbar">
-          <div class="workspace-tabs" role="tablist" aria-label="Job views" @keydown.arrow-right.prevent="overviewView = overviewView === 'tables' ? 'charts' : 'tables'; $nextTick(() => $el.querySelector('[aria-selected=true]').focus())" @keydown.arrow-left.prevent="overviewView = overviewView === 'tables' ? 'charts' : 'tables'; $nextTick(() => $el.querySelector('[aria-selected=true]').focus())">
-            <button type="button" role="tab" id="tables-tab" aria-controls="table-progress-view" :aria-selected="overviewView === 'tables'" :tabindex="overviewView === 'tables' ? 0 : -1" @click="overviewView = 'tables'">Table progress</button>
-            <button type="button" role="tab" id="charts-tab" aria-controls="charts-view" :aria-selected="overviewView === 'charts'" :tabindex="overviewView === 'charts' ? 0 : -1" @click="overviewView = 'charts'">Charts</button>
-          </div>
-          <div class="record-actions" x-show="!reviewingHistory"><button type="button" class="secondary" id="rerun-current" title="Configure a new job using these saved options" x-show="canRerun(job?.record)" @click="rerunJob(job.record)" :disabled="running || busy">Re-run command</button></div>
-          </div>
-          <div class="progress-view" id="table-progress-view" role="tabpanel" aria-labelledby="tables-tab" x-show="overviewView === 'tables'">
-          <div class="metrics" aria-label="Run totals">
-            <div class="metric"><span>Tables</span><strong x-text="number(totals.tables ?? 0)"></strong></div>
-            <div class="metric"><span>Errors</span><strong :class="totals.errors ? 'error' : 'healthy'" x-text="number(totals.errors ?? 0)"></strong></div>
-            <div class="metric"><span>Warnings</span><strong :class="totals.warnings ? 'warn' : ''" x-text="number(totals.warnings ?? 0)"></strong></div>
-            <div class="metric"><span>Skipped</span><strong x-text="number(totals.skipped ?? 0)"></strong></div>
-            <div class="metric"><span>Exported total</span><strong x-text="number(totals.exported ?? 0)"></strong></div>
-            <div class="metric"><span>Imported total</span><strong x-text="number(totals.imported ?? 0)"></strong></div>
-          </div>
-          <div class="table-toolbar">
-            <label class="sr-only" for="table-filter">Filter table name</label>
-            <input id="table-filter" type="search" placeholder="Filter table name…" x-model.debounce.150ms="tableFilter" @input="tablePage = 1">
-            <span class="hint" x-text="filteredTables.length + ' of ' + (totals.tables ?? 0) + ' tables'"></span>
-          </div>
-          <div class="table-scroll" tabindex="0" aria-label="Per-table progress">
-            <table class="progress-table">
-              <thead><tr><th aria-label="Expand logs"></th><th scope="col">Table</th><th scope="col">Exported</th><th scope="col">Imported</th><th scope="col">Errors</th><th scope="col">Warnings</th><th scope="col">Log lines</th><th scope="col">Status</th></tr></thead>
-              <template x-for="(table, index) in visibleTables" :key="table.name">
-                <tbody>
-                  <tr>
-                    <td><button type="button" class="expand-table" @click="toggleTable(table.name)" :aria-expanded="expandedTable === table.name" :aria-label="'Logs for ' + table.name" :aria-controls="'table-details-' + index" x-text="expandedTable === table.name ? '▾' : '▸'"></button></td>
-                    <th scope="row"><span x-text="table.name"></span><small x-show="table.target && table.target !== table.name" x-text="'→ ' + table.target"></small></th>
-                    <td x-text="number(table.exported)"></td><td x-text="number(table.imported)"></td>
-                    <td :class="table.errors ? 'error' : ''" x-text="number(table.errors)"></td>
-                    <td :class="table.warnings ? 'warn' : ''" x-text="number(table.warnings)"></td>
-                    <td x-text="number(table.log_lines)"></td>
-                    <td><span class="status-badge" :class="table.status" :title="'Phase: ' + table.phase" x-text="table.status"></span></td>
-                  </tr>
-                  <tr x-show="expandedTable === table.name" :id="'table-details-' + index" x-cloak>
-                    <td colspan="8" class="table-details">
-                      <template x-if="expandedTable === table.name">
-                        <div>
-                          <p class="hint" x-text="tableDetail ? 'Showing ' + tableDetail.events.length + ' recent log entries of ' + number(tableDetail.total) + (tableDetail.truncated ? ' · earlier entries discarded' : '') : 'Loading table logs…'"></p>
-                          <p class="error" role="alert" x-show="detailError" x-text="detailError"></p>
-                          <button type="button" class="secondary" x-show="detailError" @click="loadTableLogs">Retry loading logs</button>
-                          <template x-for="event in (tableDetail?.events || [])" :key="event.sequence">
-                            <pre :class="event.data?.level || event.stream" x-text="logEmoji(event) + ' ' + formatEvent(event)"></pre>
-                          </template>
-                        </div>
-                      </template>
-                    </td>
-                  </tr>
-                </tbody>
-              </template>
-            </table>
-            <p class="hint empty-tables" x-show="!visibleTables.length" x-text="tableFilter ? 'No matching tables.' : (showingSavedOutput ? (historyOutputLoading ? 'Rebuilding table progress from saved logs…' : (historyOutputError ? 'Saved table progress is unavailable.' : 'No table progress was found in the saved logs.')) : 'Tables will appear when molt identifies them.')"></p>
-          </div>
-          <div class="pagination" x-show="tablePages > 1" x-cloak>
-            <button type="button" class="secondary" :disabled="tablePage <= 1" @click="tablePage--">Previous</button>
-            <span x-text="'Page ' + Math.min(tablePage, tablePages) + ' of ' + tablePages"></span>
-            <button type="button" class="secondary" :disabled="tablePage >= tablePages" @click="tablePage++">Next</button>
-          </div>
-            <div class="table-footnote hint"><span x-text="number(totals.unassigned ?? 0) + ' global log entries · ' + number(totals.unassigned_warnings ?? 0) + ' global warnings'"></span><span x-text="showingSavedOutput ? 'Totals include the full saved log.' : 'Totals include all received logs.'"></span></div>
-          </div>
-          <div class="charts-view" id="charts-view" role="tabpanel" aria-labelledby="charts-tab" x-show="overviewView === 'charts'" x-cloak>
-            <div class="charts-heading">
-              <div><h2>Molt metrics</h2><p class="hint" role="status" x-text="statusText"></p><p class="hint" x-show="lastUpdated" x-text="lastUpdated ? 'Last sample ' + new Date(lastUpdated * 1000).toLocaleTimeString() : ''"></p></div>
-              <div class="chart-filters" x-show="available">
-                <label>Schema<select x-model="schema" @change="table = ''; filterChanged()"><option value="">All schemas</option><template x-for="name in optionsFor('schema')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
-                <label>Table<select x-model="table" @change="filterChanged()"><option value="">All tables</option><template x-for="name in optionsFor('table')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
-                <label>Shard<select x-model="shard" @change="filterChanged()"><option value="">All shards</option><template x-for="name in optionsFor('shard')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
               </div>
-              <button type="button" class="secondary" @click="refresh" :disabled="loading || !contextKey" x-text="loading ? 'Refreshing…' : 'Refresh'"></button>
+              <p class="hint" role="status" x-show="copyMessage" x-text="copyMessage"></p>
+              <p class="error" x-show="selectedRecord?.error" x-text="selectedRecord?.error"></p>
+            </section>
+
+            <section class="session-workspace" x-cloak aria-label="Job details">
+            <div class="workspace-toolbar">
+            <div class="workspace-tabs" role="tablist" aria-label="Job views" @keydown.arrow-right.prevent="cycleOverview(1)" @keydown.arrow-left.prevent="cycleOverview(-1)" @keydown.home.prevent="overviewView = 'details'; $nextTick(() => $el.querySelector('#details-tab').focus())" @keydown.end.prevent="overviewView = 'output'; $nextTick(() => $el.querySelector('#output-tab').focus())">
+              <button type="button" role="tab" id="details-tab" aria-controls="details-view" :aria-selected="overviewView === 'details'" :tabindex="overviewView === 'details' ? 0 : -1" @click="overviewView = 'details'">Command details</button>
+              <button type="button" role="tab" id="tables-tab" aria-controls="table-progress-view" :aria-selected="overviewView === 'tables'" :tabindex="overviewView === 'tables' ? 0 : -1" @click="overviewView = 'tables'">Table progress</button>
+              <button type="button" role="tab" id="charts-tab" aria-controls="charts-view" :aria-selected="overviewView === 'charts'" :tabindex="overviewView === 'charts' ? 0 : -1" @click="overviewView = 'charts'">Charts</button>
+              <button type="button" role="tab" id="output-tab" aria-controls="output-pane" :aria-selected="overviewView === 'output'" :tabindex="overviewView === 'output' ? 0 : -1" @click="overviewView = 'output'">Output</button>
             </div>
-            <p class="error" role="alert" x-show="message" x-text="message"></p>
-            <p class="warn hint" x-show="state.truncated">The metrics series limit was reached; some series are omitted.</p>
-            <div class="chart-grid" x-ref="chartGrid" x-show="available">
-              <template x-for="panel in chartPanels" :key="panel.id">
-                <article class="chart-card"><h3 x-text="panel.title"></h3>
-                  <p class="hint chart-placeholder" x-show="!seriesFor(panel).length">No samples for this metric and filter. Rates and percentiles need at least two samples.</p>
-                  <p class="hint" x-show="seriesFor(panel).length > 24">Showing 24 series. Select a schema, table, or shard to narrow the chart.</p>
-                  <div class="chart-surface" :data-chart-id="panel.id" role="group" :aria-label="panel.title + '. Values are available in the chart legend.'"></div>
+            <div class="record-actions" x-show="!reviewingHistory"><button type="button" class="secondary" id="rerun-current" title="Configure a new job using these saved options" x-show="canRerun(job?.record)" @click="rerunJob(job.record)" :disabled="running || busy">Re-run command</button></div>
+            </div>
+            <section class="command-details-view" id="details-view" role="tabpanel" aria-labelledby="details-tab" x-show="overviewView === 'details'" x-cloak>
+              <div class="run-metadata-body">
+                <article class="run-summary" aria-labelledby="run-summary-heading">
+                  <header class="run-summary-heading"><div><h2 id="run-summary-heading">Run summary</h2><p class="hint">Timing, results, and table details for this run.</p></div><span class="status-badge" :class="displayedRecord?.status" x-text="displayedRecord?.status"></span></header>
+                  <dl class="run-facts">
+                    <div x-show="displayedRecord?.id"><dt>Started</dt><dd x-text="formatTimestamp(displayedRecord?.id)"></dd></div>
+                    <div x-show="displayedRecord?.finished_at"><dt>Finished</dt><dd x-text="formatTimestamp(displayedRecord?.finished_at)"></dd></div>
+                    <div x-show="displayedRecord?.returncode !== null && displayedRecord?.returncode !== undefined"><dt>Exit code</dt><dd x-text="displayedRecord?.returncode"></dd></div>
+                    <template x-for="item in runOverview" :key="item.key"><div><dt x-text="item.label"></dt><dd :class="{'error': item.attention}" x-text="formatRunValue(item.value, item.unit)"></dd></div></template>
+                  </dl>
+                  <p class="hint run-summary-note" x-show="!runOverview.length">No metric samples are available for this run.</p>
+                  <div class="run-table-section" x-show="runTablePanels.length">
+                    <h3>Table breakdown</h3>
+                    <div class="run-table-scroll" tabindex="0" aria-label="Table timings and data errors">
+                      <table class="run-table"><thead><tr><th scope="col">Table</th><template x-for="panel in runTablePanels" :key="panel.id"><th scope="col" x-text="panel.label"></th></template></tr></thead>
+                        <tbody><template x-for="row in runTableRows" :key="row.key"><tr><th scope="row" x-text="row.name"></th><template x-for="panel in runTablePanels" :key="panel.id"><td :class="{'error': panel.metric === 'molt_fetch_num_data_errors' && row.values[panel.id] > 0}" x-text="formatRunValue(row.values[panel.id], panel.unit)"></td></template></tr></template></tbody>
+                      </table>
+                    </div>
+                    <p class="hint run-summary-note" x-show="!runTableRows.length">Table timings will appear when samples are available.</p>
+                  </div>
+                  <details class="run-invocation"><summary>Invocation and log file</summary>
+                    <div class="metadata-invocation"><pre class="invocation" x-text="formatInvocation(displayedRecord) || 'Imported log — no command was executed.'"></pre><button type="button" class="secondary" x-show="displayedRecord?.invocation" @click="copyCommand(formatInvocation(displayedRecord))">Copy</button></div>
+                    <p class="hint" x-show="displayedRecord?.log_file">Log file: <code x-text="displayedRecord?.log_file"></code></p>
+                  </details>
                 </article>
-              </template>
+              </div>
+            </section>
+            <div class="progress-view" id="table-progress-view" role="tabpanel" aria-labelledby="tables-tab" x-show="overviewView === 'tables'">
+            <div class="metrics" aria-label="Run totals">
+              <div class="metric"><span>Tables</span><strong x-text="number(totals.tables ?? 0)"></strong></div>
+              <div class="metric"><span>Errors</span><strong :class="totals.errors ? 'error' : 'healthy'" x-text="number(totals.errors ?? 0)"></strong></div>
+              <div class="metric"><span>Warnings</span><strong :class="totals.warnings ? 'warn' : ''" x-text="number(totals.warnings ?? 0)"></strong></div>
+              <div class="metric"><span>Skipped</span><strong x-text="number(totals.skipped ?? 0)"></strong></div>
+              <div class="metric"><span>Exported total</span><strong x-text="number(totals.exported ?? 0)"></strong></div>
+              <div class="metric"><span>Imported total</span><strong x-text="number(totals.imported ?? 0)"></strong></div>
             </div>
-            <p class="hint" x-show="available">The latest 1,800 samples (about 1 hour) are retained. Row rates use a 1-minute window; latency percentiles use 5 minutes. Both are estimates from collected samples.</p>
+            <div class="table-toolbar">
+              <label class="sr-only" for="table-filter">Filter table name</label>
+              <input id="table-filter" type="search" placeholder="Filter table name…" x-model.debounce.150ms="tableFilter" @input="tablePage = 1">
+              <span class="hint" x-text="filteredTables.length + ' of ' + (totals.tables ?? 0) + ' tables'"></span>
+            </div>
+            <div class="table-scroll" tabindex="0" aria-label="Per-table progress">
+              <table class="progress-table">
+                <thead><tr><th aria-label="Expand logs"></th><th scope="col">Table</th><th scope="col">Exported</th><th scope="col">Imported</th><th scope="col">Errors</th><th scope="col">Warnings</th><th scope="col">Log lines</th><th scope="col">Status</th></tr></thead>
+                <template x-for="(table, index) in visibleTables" :key="table.name">
+                  <tbody>
+                    <tr>
+                      <td><button type="button" class="expand-table" @click="toggleTable(table.name)" :aria-expanded="expandedTable === table.name" :aria-label="'Logs for ' + table.name" :aria-controls="'table-details-' + index" x-text="expandedTable === table.name ? '▾' : '▸'"></button></td>
+                      <th scope="row"><span x-text="table.name"></span><small x-show="table.target && table.target !== table.name" x-text="'→ ' + table.target"></small></th>
+                      <td x-text="number(table.exported)"></td><td x-text="number(table.imported)"></td>
+                      <td :class="table.errors ? 'error' : ''" x-text="number(table.errors)"></td>
+                      <td :class="table.warnings ? 'warn' : ''" x-text="number(table.warnings)"></td>
+                      <td x-text="number(table.log_lines)"></td>
+                      <td><span class="status-badge" :class="table.status" :title="'Phase: ' + table.phase" x-text="table.status"></span></td>
+                    </tr>
+                    <tr x-show="expandedTable === table.name" :id="'table-details-' + index" x-cloak>
+                      <td colspan="8" class="table-details">
+                        <template x-if="expandedTable === table.name">
+                          <div>
+                            <p class="hint" x-text="tableDetail ? 'Showing ' + tableDetail.events.length + ' recent log entries of ' + number(tableDetail.total) + (tableDetail.truncated ? ' · earlier entries discarded' : '') : 'Loading table logs…'"></p>
+                            <p class="error" role="alert" x-show="detailError" x-text="detailError"></p>
+                            <button type="button" class="secondary" x-show="detailError" @click="loadTableLogs">Retry loading logs</button>
+                            <template x-for="event in (tableDetail?.events || [])" :key="event.sequence">
+                              <pre :class="event.data?.level || event.stream" x-text="logEmoji(event) + ' ' + formatEvent(event)"></pre>
+                            </template>
+                          </div>
+                        </template>
+                      </td>
+                    </tr>
+                  </tbody>
+                </template>
+              </table>
+              <p class="hint empty-tables" x-show="!visibleTables.length" x-text="tableFilter ? 'No matching tables.' : (showingSavedOutput ? (historyOutputLoading ? 'Rebuilding table progress from saved logs…' : (historyOutputError ? 'Saved table progress is unavailable.' : 'No table progress was found in the saved logs.')) : 'Tables will appear when molt identifies them.')"></p>
+            </div>
+            <div class="pagination" x-show="tablePages > 1" x-cloak>
+              <button type="button" class="secondary" :disabled="tablePage <= 1" @click="tablePage--">Previous</button>
+              <span x-text="'Page ' + Math.min(tablePage, tablePages) + ' of ' + tablePages"></span>
+              <button type="button" class="secondary" :disabled="tablePage >= tablePages" @click="tablePage++">Next</button>
+            </div>
+              <div class="table-footnote hint"><span x-text="number(totals.unassigned ?? 0) + ' global log entries · ' + number(totals.unassigned_warnings ?? 0) + ' global warnings'"></span><span x-text="showingSavedOutput ? 'Totals include the full saved log.' : 'Totals include all received logs.'"></span></div>
+            </div>
+            <div class="charts-view" id="charts-view" role="tabpanel" aria-labelledby="charts-tab" x-show="overviewView === 'charts'" x-cloak>
+              <div class="charts-heading">
+                <div><h2>Molt metrics</h2><p class="hint" role="status" x-text="statusText"></p><p class="hint" x-show="lastUpdated" x-text="lastUpdated ? 'Last sample ' + new Date(lastUpdated * 1000).toLocaleTimeString() : ''"></p></div>
+                <div class="chart-filters" x-show="available">
+                  <label>Schema<select x-model="schema" @change="table = ''; filterChanged()"><option value="">All schemas</option><template x-for="name in optionsFor('schema')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
+                  <label>Table<select x-model="table" @change="filterChanged()"><option value="">All tables</option><template x-for="name in optionsFor('table')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
+                  <label>Shard<select x-model="shard" @change="filterChanged()"><option value="">All shards</option><template x-for="name in optionsFor('shard')" :key="name"><option :value="name" x-text="name"></option></template></select></label>
+                </div>
+                <button type="button" class="secondary" @click="refresh" :disabled="loading || !contextKey" x-text="loading ? 'Refreshing…' : 'Refresh'"></button>
+              </div>
+              <p class="error" role="alert" x-show="message" x-text="message"></p>
+              <p class="warn hint" x-show="state.truncated">The metrics series limit was reached; some series are omitted.</p>
+              <div class="chart-grid" x-ref="chartGrid" x-show="available">
+                <template x-for="panel in chartPanels" :key="panel.id">
+                  <article class="chart-card"><h3 x-text="panel.title"></h3>
+                    <p class="hint chart-placeholder" x-show="!seriesFor(panel).length">No samples for this metric and filter. Rates and percentiles need at least two samples.</p>
+                    <p class="hint" x-show="seriesFor(panel).length > 24">Showing 24 series. Select a schema, table, or shard to narrow the chart.</p>
+                    <div class="chart-surface" :data-chart-id="panel.id" role="group" :aria-label="panel.title + '. Values are available in the chart legend.'"></div>
+                  </article>
+                </template>
+              </div>
+              <p class="hint" x-show="available">The latest 1,800 samples (about 1 hour) are retained. Row rates use a 1-minute window; latency percentiles use 5 minutes. Both are estimates from collected samples.</p>
+            </div>
+            <section class="output-pane" id="output-pane" role="tabpanel" aria-labelledby="output-tab" x-show="overviewView === 'output'" x-cloak x-effect="const count = visibleOutputEvents.length; if (overviewView === 'output' && followOutput) scrollOutputToEnd()">
+              <div class="output-filters" role="group" aria-label="Filter output">
+                <label class="output-search" for="output-search"><span>Search logs</span><input id="output-search" type="search" x-model.debounce.150ms="outputSearch" placeholder="Search messages, tables, or fields…"></label>
+                <label for="output-level"><span>Minimum level</span><select id="output-level" x-model="outputLevel"><option value="">All levels</option><option value="trace">Trace+</option><option value="debug">Debug+</option><option value="info">Info+</option><option value="warn">Warnings+</option><option value="error">Errors+</option><option value="fatal">Fatal+</option><option value="panic">Panic</option></select></label>
+                <label for="output-stream"><span>Stream</span><select id="output-stream" x-model="outputStream"><option value="">All streams</option><option value="stdout">stdout</option><option value="stderr">stderr</option><option value="log">Log file</option></select></label>
+                <button type="button" class="secondary" @click="resetOutputFilters()" :disabled="!outputFiltersActive">Reset filters</button>
+                <label class="check-label"><input type="checkbox" x-model="rawOutput" @change="if (followOutput) scrollOutputToEnd()"> Raw JSON</label>
+                <label class="check-label" x-show="!showingSavedOutput"><input type="checkbox" x-model="followOutput" @change="if (followOutput) scrollOutputToEnd()"> Follow</label>
+              </div>
+              <p class="output-notice hint" x-show="!showingSavedOutput && truncated" x-cloak>Earlier output was discarded. Showing the latest log entries.</p>
+              <p class="output-scope hint" x-show="showingSavedOutput && (historyOutput?.total ?? 0) > outputEvents.length">Filters apply to the loaded page. Use Older page or Latest page to browse saved output.</p>
+              <div class="log-output" id="output-log" x-ref="output" tabindex="0" aria-label="Command output" :style="{'--line-number-width': Math.max(4, String(outputCursor).length) + 'ch'}" @scroll.passive="outputScrolled()">
+                <p class="error" role="alert" x-show="showingSavedOutput && historyOutputError" x-text="historyOutputError"></p>
+                <button type="button" class="secondary" x-show="showingSavedOutput && historyOutputError" @click="loadHistoryOutput(historyBefore)">Retry saved output</button>
+                <p class="hint empty-output" x-show="!outputEvents.length" x-text="showingSavedOutput ? (historyOutputLoading ? 'Loading saved output…' : (historyOutputError ? 'Saved output is unavailable.' : 'No output was saved for this job.')) : 'Command output will appear here. Start a new job or review a saved log.'"></p>
+                <p class="hint empty-output" x-show="outputEvents.length && !visibleOutputEvents.length">No lines match your filters. Change or reset the filters to see more output.</p>
+                <template x-for="event in visibleOutputEvents" :key="event.sequence">
+                  <div class="log-line" :class="logLevel(event)">
+                    <span class="log-line-number" aria-hidden="true" x-text="event.sequence"></span>
+                    <span class="log-level-icon" :role="showLogEmoji(event) ? 'img' : null" :aria-label="showLogEmoji(event) ? logLevel(event) : null" :title="showLogEmoji(event) ? logLevel(event) : null" x-text="showLogEmoji(event) ? logEmoji(event) : ''"></span>
+                    <pre x-text="rawOutput ? event.text : formatEvent(event)"></pre>
+                  </div>
+                </template>
+              </div>
+              <footer class="output-footer">
+                <span class="output-count hint" x-text="number(visibleOutputEvents.length) + ' of ' + number(outputEvents.length) + ' loaded lines' + (showingSavedOutput ? ' · ' + number(historyOutput?.total ?? 0) + ' saved' : '')"></span>
+                <div class="history-output-nav" x-show="showingSavedOutput">
+                  <button type="button" class="secondary" @click="loadHistoryOutput(historyOutput.next_before)" :disabled="historyOutputLoading" x-show="historyOutput?.next_before">Older page</button>
+                  <button type="button" class="secondary" @click="loadHistoryOutput()" :disabled="historyOutputLoading" x-show="historyBefore !== null">Latest page</button>
+                </div>
+              </footer>
+            </section>
+            </section>
           </div>
-          </section>
+
         </div>
       </div>
-      <section class="output-pane" id="output-pane" :class="{collapsed: outputCollapsed, maximized: outputMaximized}" :style="{height: outputMaximized ? '100dvh' : (outputCollapsed ? 44 : outputHeight) + 'px'}" @keydown.escape="if (outputMaximized) { $event.stopPropagation(); toggleOutputMaximized() }" aria-labelledby="output-heading">
-        <div class="output-resizer" x-show="!outputMaximized" role="separator" aria-label="Resize output pane" aria-orientation="horizontal" aria-controls="output-pane" tabindex="0" :aria-valuenow="outputCollapsed ? 44 : outputHeight" aria-valuemin="44" :aria-valuemax="outputMaxHeight()" @pointerdown.prevent="beginOutputResize($event)" @pointermove="moveOutputResize($event)" @pointerup="endOutputResize($event)" @pointercancel="endOutputResize($event)" @lostpointercapture="resizingOutput = false" @keydown.arrow-up.prevent="resizeOutputBy(32)" @keydown.arrow-down.prevent="resizeOutputBy(-32)" @keydown.home.prevent="setOutputHeight(80)" @keydown.end.prevent="setOutputHeight(outputMaxHeight())" @dblclick="setOutputHeight(240)"></div>
-        <div class="output-toolbar">
-          <h2 id="output-heading">Output</h2><span class="output-context hint" x-text="outputContext"></span>
-          <span class="output-count hint" x-text="number(outputEvents.length) + (showingSavedOutput ? ' of ' + number(historyOutput?.total ?? 0) : '') + ' lines'"></span>
-          <div class="history-output-nav" x-show="!outputCollapsed && showingSavedOutput">
-            <button type="button" class="secondary" @click="loadHistoryOutput(historyOutput.next_before)" :disabled="historyOutputLoading" x-show="historyOutput?.next_before">Older</button>
-            <button type="button" class="secondary" @click="loadHistoryOutput()" :disabled="historyOutputLoading" x-show="historyBefore !== null">Latest</button>
-          </div>
-          <label class="check-label" x-show="!outputCollapsed"><input type="checkbox" x-model="rawOutput"> Raw<span class="desktop-label"> JSON</span></label>
-          <label class="check-label" x-show="!outputCollapsed && !showingSavedOutput"><input type="checkbox" x-model="followOutput" @change="if (followOutput) scrollOutputToEnd()"> Follow</label>
-          <button type="button" class="secondary clear-output" id="clear-output" @click="clearOutput" :disabled="!outputEvents.length" title="Clear displayed log lines" aria-label="Clear displayed log lines">Clear</button>
-          <button type="button" class="secondary icon-button" id="maximize-output" @click="toggleOutputMaximized" :aria-pressed="outputMaximized" aria-controls="output-pane" :aria-label="outputMaximized ? 'Restore output pane size' : 'Maximize output pane'" :title="outputMaximized ? 'Restore output pane size' : 'Maximize output pane'" x-text="outputMaximized ? '❐' : '⛶'"></button>
-          <button type="button" class="secondary icon-button" id="toggle-output" @click="toggleOutput" :aria-expanded="!outputCollapsed" aria-controls="output-log" :aria-label="outputCollapsed ? 'Restore output pane' : 'Minimize output pane'" :title="outputCollapsed ? 'Restore output pane' : 'Minimize output pane'" x-text="outputCollapsed ? '▴' : '▾'"></button>
-        </div>
-        <p class="output-notice hint" x-show="!outputCollapsed && !showingSavedOutput && truncated" x-cloak>Earlier output was discarded. Showing the latest log entries.</p>
-        <div class="log-output" id="output-log" x-ref="output" x-show="!outputCollapsed" tabindex="0" aria-label="Command output" :style="{'--line-number-width': Math.max(4, String(outputCursor).length) + 'ch'}" @scroll.passive="outputScrolled()">
-          <p class="error" role="alert" x-show="showingSavedOutput && historyOutputError" x-text="historyOutputError"></p>
-          <button type="button" class="secondary" x-show="showingSavedOutput && historyOutputError" @click="loadHistoryOutput(historyBefore)">Retry saved output</button>
-          <p class="hint empty-output" x-show="!outputEvents.length" x-text="displayedOutputCleared ? 'Output cleared.' : (showingSavedOutput ? (historyOutputLoading ? 'Loading saved output…' : (historyOutputError ? 'Saved output is unavailable.' : 'No output was saved for this job.')) : 'Command output will appear here. Configure a command or review a saved log.')"></p>
-            <template x-for="event in outputEvents" :key="event.sequence">
-              <div class="log-line" :class="logLevel(event)">
-                <span class="log-line-number" aria-hidden="true" x-text="event.sequence"></span>
-                <span class="log-level-icon" :role="showLogEmoji(event) ? 'img' : null" :aria-label="showLogEmoji(event) ? logLevel(event) : null" :title="showLogEmoji(event) ? logLevel(event) : null" x-text="showLogEmoji(event) ? logEmoji(event) : ''"></span>
-                <pre x-text="rawOutput ? event.text : formatEvent(event)"></pre>
-              </div>
-            </template>
-        </div>
-      </section>
       <dialog class="import-dialog" x-ref="importer" aria-labelledby="import-heading" @cancel.prevent="if (!busy) $refs.importer.close()">
         <div class="dialog-heading"><div><p class="eyebrow">Log review</p><h2 id="import-heading">Open a saved log</h2></div><button type="button" class="secondary icon-button" @click="$refs.importer.close()" :disabled="busy" aria-label="Close log review">✕</button></div>
         <p class="hint">Inspect tables, totals, and output from a JSONL or text log. Uploads can be up to 256 MiB.</p>
@@ -267,7 +269,16 @@
                       </select>
                     </template>
                     <template x-if="option.kind !== 'bool' && !option.choices.length">
-                      <input :id="'opt-' + option.name" :type="inputType(option)" :inputmode="option.kind === 'int' ? 'numeric' : 'text'" :value="fieldValue(option)" @input="setOption(option, $event.target.value)" :placeholder="fieldPlaceholder(option)" :required="isRequired(option)" autocomplete="off" :aria-describedby="'brief-' + option.name">
+                      <div>
+                        <input :id="'opt-' + option.name" :type="inputType(option)" :inputmode="option.kind === 'int' ? 'numeric' : 'text'" :value="fieldValue(option)" @input="setOption(option, $event.target.value)" :placeholder="fieldPlaceholder(option)" :required="isRequired(option)" autocomplete="off" :aria-describedby="'brief-' + option.name">
+                      </div>
+                    </template>
+                    <template x-if="option.file_input">
+                      <div class="file-upload">
+                        <label :for="'file-' + option.name" class="sr-only" x-text="'Choose file for ' + option.label"></label>
+                        <input type="file" :id="'file-' + option.name" :aria-describedby="'brief-' + option.name" :disabled="busy || running" @change="uploadOptionFile(option, $event.target.files[0]); $event.target.value = ''">
+                        <small>Choose a file or enter a path above. Selected files are copied to Molt UI for this and future runs (up to 32 MiB).</small>
+                      </div>
                     </template>
                     <small :id="'brief-' + option.name" x-text="option.brief"></small>
                     <details class="flag-help"><summary>More about this option</summary><p x-text="option.description"></p></details>
@@ -277,7 +288,7 @@
                 <p class="hint" x-show="['logging', 'metrics'].includes(currentStage) && !stepOptions.length">This command has no options in this category.</p>
                 <div x-show="currentStage === 'review'">
                   <h3>Review the command</h3>
-                  <pre class="invocation" x-text="preview?.invocation || ''"></pre>
+                  <pre class="invocation" x-text="formatInvocation(preview)"></pre>
                   <p class="notice" x-text="wizardHelpOnly ? 'Run displays help for this command.' : 'Run starts the real operation immediately. Stop ends the process and does not undo completed work.'"></p>
                   <p class="hint">This exact invocation, including connection values, will be saved locally with its timestamps and final status.</p>
                 </div>

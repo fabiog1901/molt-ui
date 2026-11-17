@@ -39,7 +39,8 @@ def message_table(message: str) -> str | None:
 
 
 class LogAggregator:
-    def __init__(self) -> None:
+    def __init__(self, *, direct_copy: bool = False) -> None:
+        self._direct_copy = direct_copy
         self.tables: dict[str, TableProgress] = {}
         self._aliases: dict[str, str] = {}
         # One global detail buffer, not an unbounded log list per table.
@@ -64,6 +65,11 @@ class LogAggregator:
         self._warnings += warning
         message = data.get("message", "")
         message = message if isinstance(message, str) else ""
+        if data.get("event_name") == "fetch.configuration" or message == "fetch.configuration":
+            self._direct_copy = (
+                data.get("mode") == "DataLoad"
+                and data.get("storage_type") == "copy_direct"
+            )
         source, target = data.get("source_table"), data.get("target_table")
         if isinstance(source, str) and source:
             name = source
@@ -113,6 +119,16 @@ class LogAggregator:
         elif lower == "data import on target for table complete":
             table.phase = "imported"
             self._update_rows(table, "imported", data.get("num_rows"))
+        elif (
+            self._direct_copy
+            and (data.get("event_name") == "fetch.table.complete" or lower == "fetch.table.complete")
+            and data.get("success") is True
+            and row_count(data.get("rows")) is not None
+        ):
+            # Direct copy finishes both sides without a separate import summary.
+            table.phase = "imported"
+            self._update_rows(table, "exported", data["rows"])
+            self._update_rows(table, "imported", data["rows"])
         # Explicit cumulative counters, when supplied by other molt log variants.
         for field, keys in (
             ("exported", ("rows_exported", "exported_rows")),

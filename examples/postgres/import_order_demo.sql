@@ -130,8 +130,57 @@ $$;
 \copy order_demo.shipments (shipment_id, order_id, carrier, tracking_number, shipped_at, delivered_at, delivery_window, estimated_transit, package_weight_kg, tracking_events) FROM 'order_demo/order_demo__shipments.0_3_1.tsv' WITH (FORMAT csv, DELIMITER E'\t', NULL '', ENCODING 'UTF8')
 \copy order_demo.shipments (shipment_id, order_id, carrier, tracking_number, shipped_at, delivered_at, delivery_window, estimated_transit, package_weight_kg, tracking_events) FROM 'order_demo/order_demo__shipments.0_3_2.tsv' WITH (FORMAT csv, DELIMITER E'\t', NULL '', ENCODING 'UTF8')
 
+\echo Loading audit.audit_event sample history
+-- Synthetic UPDATE history: ten events for each reference table (40 total).
+-- Use existing rows for complete, correctly typed snapshots. Only the snapshots
+-- differ; these INSERTs do not change the reference rows or invoke their triggers.
+-- This block can also be run separately against an already populated demo.
+INSERT INTO audit.audit_event (
+    occurred_at, application_name, table_schema, table_name, operation,
+    row_key, changed_columns, old_row, new_row
+)
+SELECT current_timestamp - row_number() OVER (ORDER BY c.customer_id) * interval '1 minute',
+       'order-demo-seed', 'order_demo', 'customers', 'UPDATE',
+       jsonb_build_object('customer_id', c.customer_id), ARRAY['full_name'],
+       to_jsonb(c) || jsonb_build_object('full_name', 'Previous ' || c.full_name),
+       to_jsonb(c)
+FROM (SELECT * FROM order_demo.customers ORDER BY customer_id LIMIT 10) AS c;
+
+INSERT INTO audit.audit_event (
+    occurred_at, application_name, table_schema, table_name, operation,
+    row_key, changed_columns, old_row, new_row
+)
+SELECT current_timestamp - (10 + row_number() OVER (ORDER BY a.address_id)) * interval '1 minute',
+       'order-demo-seed', 'order_demo', 'addresses', 'UPDATE',
+       jsonb_build_object('address_id', a.address_id), ARRAY['delivery_notes'],
+       to_jsonb(a) || jsonb_build_object('delivery_notes', 'Previous: ' || coalesce(a.delivery_notes, '')),
+       to_jsonb(a)
+FROM (SELECT * FROM order_demo.addresses ORDER BY address_id LIMIT 10) AS a;
+
+INSERT INTO audit.audit_event (
+    occurred_at, application_name, table_schema, table_name, operation,
+    row_key, changed_columns, old_row, new_row
+)
+SELECT current_timestamp - (20 + row_number() OVER (ORDER BY c.category_id)) * interval '1 minute',
+       'order-demo-seed', 'order_demo', 'categories', 'UPDATE',
+       jsonb_build_object('category_id', c.category_id), ARRAY['name'],
+       to_jsonb(c) || jsonb_build_object('name', 'Previous ' || c.name),
+       to_jsonb(c)
+FROM (SELECT * FROM order_demo.categories ORDER BY category_id LIMIT 10) AS c;
+
+INSERT INTO audit.audit_event (
+    occurred_at, application_name, table_schema, table_name, operation,
+    row_key, changed_columns, old_row, new_row
+)
+SELECT current_timestamp - (30 + row_number() OVER (ORDER BY p.product_id)) * interval '1 minute',
+       'order-demo-seed', 'order_demo', 'products', 'UPDATE',
+       jsonb_build_object('product_id', p.product_id), ARRAY['price'],
+       to_jsonb(p) || jsonb_build_object('price', p.price + 1.00),
+       to_jsonb(p)
+FROM (SELECT * FROM order_demo.products ORDER BY product_id LIMIT 10) AS p;
+
 -- COPY supplies identity values without advancing their sequences.
--- Audit events are not imported and their sequence is left untouched.
+-- Audit INSERTs use generated IDs, so their sequence advances automatically.
 SELECT setval(pg_get_serial_sequence('order_demo.customers', 'customer_id'), max(customer_id), true) FROM order_demo.customers;
 SELECT setval(pg_get_serial_sequence('order_demo.addresses', 'address_id'), max(address_id), true) FROM order_demo.addresses;
 SELECT setval(pg_get_serial_sequence('order_demo.categories', 'category_id'), max(category_id), true) FROM order_demo.categories;
@@ -150,6 +199,7 @@ ANALYZE order_demo.orders;
 ANALYZE order_demo.order_items;
 ANALYZE order_demo.payments;
 ANALYZE order_demo.shipments;
+ANALYZE audit.audit_event;
 
 -- Exact row counts; orders includes all 16 partitions.
 SELECT 'order_demo.customers' AS table_name, count(*) AS row_count FROM order_demo.customers

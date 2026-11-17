@@ -13,3 +13,5 @@ molt/
 *.tsv
 *.csv
 *.dump
+
+examples/

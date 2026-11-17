@@ -38,11 +38,43 @@ def test_cli_failure_is_returned_to_the_ui(api_client):
 
 
 def test_frontend_assets_are_served(api_client, command_catalog):
+    from molt_ui.api.app import APP_VERSION
+
     with api_client(MoltService(MoltProcess("/unused"), Repo(), catalog=command_catalog)) as client:
-        assert 'x-data="cliApp"' in client.get("/").text
+        html = client.get("/").text
+        assert 'x-data="cliApp"' in html
+        assert f">v{APP_VERSION}</span>" in html
+        assert "__APP_VERSION__" not in html
         for path in ("/static/styles.css", "/static/app.js"):
             assert client.get(path).status_code == 200
         assert client.get("/api/unknown").status_code == 404
+
+
+def test_command_file_upload_preserves_content_and_uses_unique_persistent_paths(api_client, tmp_path):
+    from pathlib import Path
+
+    content = b'{"tables": []}'
+    with api_client(Mock(spec=MoltService)) as client:
+        response = client.post("/api/command-files", content=content,
+                               headers={"X-Filename": "..%2Ftransformations%20file.json"})
+        assert response.status_code == 201
+        selected = Path(response.json()["path"])
+        assert selected.parent == tmp_path / "command-files"
+        assert selected.name.endswith("-transformations file.json")
+        assert selected.read_bytes() == content
+        second = client.post("/api/command-files", content=b"different",
+                             headers={"X-Filename": "transformations file.json"})
+        assert second.json()["path"] != str(selected)
+        assert selected.read_bytes() == content
+    assert selected.read_bytes() == content
+
+
+def test_oversized_command_file_upload_removes_partial_file(api_client, tmp_path, monkeypatch):
+    monkeypatch.setattr("molt_ui.api.app.MAX_COMMAND_FILE_SIZE", 4)
+    with api_client(Mock(spec=MoltService)) as client:
+        response = client.post("/api/command-files", content=b"too large")
+        assert response.status_code == 413
+        assert list((tmp_path / "command-files").iterdir()) == []
 
 
 def test_job_api_runs_real_help_and_reports_validation_errors(api_client, command_catalog):

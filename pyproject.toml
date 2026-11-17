@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-molt-web = "molt_ui.main:main"
+molt-ui = "molt_ui.main:main"
 
 [tool.poetry]
 packages = [{include = "molt_ui", from = "src"}]

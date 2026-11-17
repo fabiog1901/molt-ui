@@ -301,3 +301,18 @@ def test_captured_history_rebuilds_same_progress_as_live_run(tmp_path):
     assert detail.total > 0
     assert all(event.data.get("table") == "public.actor" or event.data.get("source_table") == "public.actor" or "public.actor" in event.text for event in detail.events)
     service.close()
+
+
+def test_direct_copy_imported_counts_survive_history_replay(tmp_path):
+    service = MoltService(MoltProcess("/unused"), Repo(str(tmp_path / "history.sqlite3")))
+    lines = [
+        {"message": "fetch.configuration", "mode": "DataLoad", "storage_type": "copy_direct"},
+        {"table": "public.actor", "num_rows": 200, "message": "data extraction from source complete"},
+        {"table_name": "public.actor", "rows": 200, "success": True, "event_name": "fetch.table.complete"},
+    ]
+    original = service.import_log(StringIO("\n".join(json.dumps(line) for line in lines)))
+    assert original.aggregation["totals"]["imported"] == 200
+    replay = service.get_history_output(original.record.id)
+    assert replay.aggregation == original.aggregation
+    assert replay.aggregation["tables"][0]["phase"] == "imported"
+    service.close()

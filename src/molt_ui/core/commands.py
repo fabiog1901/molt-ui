@@ -62,14 +62,10 @@ def build_plan(
             text = str(value).lower() if isinstance(value, bool) else value
             if "\x00" in text:
                 raise ValueError(f"--{name} contains a null character and cannot be passed to molt.")
-            env_name = known[name].environment_variable
-            if env_name:
-                overrides[env_name] = text
-            else:
-                arguments.append(f"--{name}={text}")
+            arguments.append(f"--{name}={text}")
         for option in definition.options:
             env_name = option.environment_variable
-            if env_name and env_name not in overrides and environment.get(env_name):
+            if env_name and option.name not in values and environment.get(env_name):
                 overrides[env_name] = environment[env_name]
         if (command in {'fetch', 'verify'} and 'metrics-scrape-interval' in known
                 and 'metrics-scrape-interval' not in values):

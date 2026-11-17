@@ -16,11 +16,13 @@ def test_credentials_and_literal_arguments_are_preserved(command_catalog):
     }
     plan = build_plan("/path with spaces/molt", "fetch", options, environment={}, catalog=command_catalog)
     assert plan.argv == (
-        "/path with spaces/molt", "fetch", "--direct-copy=true",
+        "/path with spaces/molt", "fetch", f"--source={options['source']}",
+        f"--target={options['target']}", "--direct-copy=true",
         "--table-filter=users; echo test", "--table-concurrency=2",
         "--metrics-scrape-interval=2s",
     )
-    assert plan.environment["MOLT_SOURCE"] == options["source"]
+    assert plan.environment == {}
+    assert shlex.split(plan.invocation) == list(plan.argv)
     assert plan.options == options
     assert "--table-filter=users; echo test" in shlex.split(plan.invocation)
 
@@ -37,9 +39,8 @@ def test_command_semantics_are_forwarded_to_molt_without_pruning(command_catalog
     assert plan.options == options
     assert plan.omitted == ()
     for name, value in options.items():
-        if name != "source":
-            text = str(value).lower() if isinstance(value, bool) else value
-            assert f"--{name}={text}" in plan.argv
+        text = str(value).lower() if isinstance(value, bool) else value
+        assert f"--{name}={text}" in plan.argv
 
 
 def test_missing_required_parameters_are_left_to_molt(command_catalog):
@@ -51,7 +52,8 @@ def test_inherited_environment_and_explicit_overrides_are_recorded(command_catal
     plan = build_plan("molt", "fetch", {"source": "explicit"}, environment={
         "MOLT_SOURCE": "inherited", "MOLT_TARGET": "target", "UNRELATED": "ignored",
     }, catalog=command_catalog)
-    assert plan.environment == {"MOLT_SOURCE": "explicit", "MOLT_TARGET": "target"}
+    assert plan.environment == {"MOLT_TARGET": "target"}
+    assert '--source=explicit' in plan.argv
     assert build_command("verify", {"rows": False}, environment={}, catalog=command_catalog)[0] == ["verify", "--rows=false", "--metrics-scrape-interval=2s"]
 
 
@@ -59,11 +61,12 @@ def test_help_ignores_configuration_and_does_not_require_connections(command_cat
     assert build_command("fetch", {"unknown": "ignored"}, help_only=True, catalog=command_catalog) == (["fetch", "--help"], {})
 
 
-def test_metrics_exit_delay_is_visible_and_respects_explicit_configuration(command_catalog):
-    default = build_plan('molt', 'fetch', {}, catalog=command_catalog)
+@pytest.mark.parametrize('command', ['fetch', 'verify'])
+def test_metrics_exit_delay_defaults_to_two_seconds_and_respects_explicit_configuration(command_catalog, command):
+    default = build_plan('molt', command, {}, catalog=command_catalog)
     assert '--metrics-scrape-interval=2s' in default.argv
     assert '--metrics-scrape-interval=2s' in default.invocation
-    explicit = build_plan('molt', 'verify', {'metrics-scrape-interval': '10s'}, catalog=command_catalog)
+    explicit = build_plan('molt', command, {'metrics-scrape-interval': '10s'}, catalog=command_catalog)
     assert '--metrics-scrape-interval=10s' in explicit.argv
     assert '--metrics-scrape-interval=2s' not in explicit.argv
 
@@ -100,8 +103,8 @@ def test_new_command_and_environment_flag_need_no_builder_configuration():
         "molt", "future", {"token": "exact", "future-switch": False},
         environment={}, catalog=catalog,
     )
-    assert plan.argv == ("molt", "future", "run", "--future-switch=false")
-    assert plan.environment == {"MOLT_TOKEN": "exact"}
+    assert plan.argv == ("molt", "future", "run", "--token=exact", "--future-switch=false")
+    assert plan.environment == {}
 
 
 def test_catalog_has_unique_flags_and_boolean_copy_option(command_catalog):

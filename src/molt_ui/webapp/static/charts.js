@@ -8,7 +8,7 @@ document.addEventListener('alpine:init', () => {
     return {
       contextKey: '', active: false, live: false, available: false,
       panels: [], frames: [], state: {}, message: '', loading: false,
-      schema: '', table: '', shard: '', detailsOpen: false,
+      schema: '', table: '', shard: '',
       init() {
         if (globalThis.ResizeObserver) {
           observer = new ResizeObserver(() => { this.renderCharts(); this.resizeCharts(); });
@@ -192,7 +192,7 @@ document.addEventListener('alpine:init', () => {
             axes: [{stroke: '#a8b0c0', grid: {stroke: '#343a4644'}},
               {stroke: '#a8b0c0', size: 60, grid: {stroke: '#343a4688'}, values: (u, ticks) => ticks.map(value => this.format(value))}],
             series: [{}, ...series.map((item, index) => ({label: item.label,
-              stroke: colors[index % colors.length], width: 1.5, spanGaps: false,
+              stroke: colors[index % colors.length], width: 1.5, spanGaps: false, points: {show: false},
               value: (u, value) => format(value)}))],
           }, data, node);
           plots.set(panel.id, {plot, node, signature});

@@ -32,6 +32,9 @@ psql -X -d order_demo -v ON_ERROR_STOP=1 -f order_demo.sql
 
 The DDL intentionally fails if either schema already exists.
 
+All 16 order partitions are declared with explicit `CREATE TABLE ... PARTITION OF`
+statements. The audit trigger function is the only PL/pgSQL routine in the file.
+
 ## Generate seed files
 
 Skip this step if you already generated the files in `order_demo/`.
@@ -91,8 +94,16 @@ and resets identity sequences. Data loading runs in one transaction and stops on
 the first error. It then refreshes planner statistics and prints row counts.
 
 Generated columns are calculated by PostgreSQL. Orders are routed to their
-partitions automatically. The audit table starts empty and fills when reference
-rows are updated.
+partitions automatically. The import script also inserts 40 synthetic audit
+events: ten each for customers, addresses, categories and products. These use
+actual row IDs and complete before/after JSONB snapshots without changing the
+reference rows. Further reference-row updates generate audit events through the
+triggers.
+
+For a database that is already populated, run just the four `INSERT INTO
+audit.audit_event` statements in `import_order_demo.sql`. The full import script
+requires empty order tables. Each execution of the audit INSERT block appends
+another 40 sample events when each reference table has at least ten rows.
 
 When the command completes, you should see the total row count per table:
 
@@ -155,6 +166,30 @@ commands. The schemas inside the database remain named `order_demo` and `audit`.
 
 ## References
 
+- [CockroachDB schema conversion and validation](../cockroachdb/README.md)
 - [PostgreSQL psql and client-side copy](https://www.postgresql.org/docs/current/app-psql.html#APP-PSQL-META-COMMAND-COPY)
 - [PostgreSQL pg_dump](https://www.postgresql.org/docs/current/app-pgdump.html)
 - [PostgreSQL pg_restore](https://www.postgresql.org/docs/current/app-pgrestore.html)
+
+
+
+
+
+
+
+
+-- ON PG
+ALTER TABLE order_demo.addresses
+  ADD COLUMN coordinates_x DOUBLE PRECISION GENERATED ALWAYS AS (coordinates[0]) STORED,
+  ADD COLUMN coordinates_y DOUBLE PRECISION GENERATED ALWAYS AS (coordinates[1]) STORED;
+
+-- products.available_during  daterange -> two date columns
+ALTER TABLE order_demo.products
+  ADD COLUMN available_from DATE GENERATED ALWAYS AS (lower(available_during)) STORED,
+  ADD COLUMN available_to   DATE GENERATED ALWAYS AS (upper(available_during)) STORED;
+
+-- shipments.delivery_window  tstzrange -> two timestamptz columns
+ALTER TABLE order_demo.shipments
+  ADD COLUMN delivery_from TIMESTAMPTZ GENERATED ALWAYS AS (lower(delivery_window)) STORED,
+  ADD COLUMN delivery_to   TIMESTAMPTZ GENERATED ALWAYS AS (upper(delivery_window)) STORED;
+

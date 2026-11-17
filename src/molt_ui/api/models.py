@@ -140,6 +140,7 @@ class CommandOption(FrontendModel):
     label: str
     choices: list[OptionChoice] = Field(default_factory=list)
     brief: str
+    file_input: bool = False
 
     @classmethod
     def from_spec(
@@ -207,6 +208,10 @@ class CommandOption(FrontendModel):
                 for value, label in choices
             ],
             brief=option.description.split(". ", 1)[0].strip()[:180],
+            file_input=(
+                option.kind == "string" and (name == "schema" or name.endswith("-file"))
+                and name not in {"log-file", "dropped-constraints-file", "dropped-indexes-file"}
+            ),
         )
 
 
