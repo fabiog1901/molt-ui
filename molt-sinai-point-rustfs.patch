@@ -1,0 +1,268 @@
+diff --git a/docs/s3-compatible-storage.md b/docs/s3-compatible-storage.md
+new file mode 100644
+index 0000000..0930eed
+--- /dev/null
++++ b/docs/s3-compatible-storage.md
+@@ -0,0 +1,37 @@
++# S3-compatible intermediate storage
++
++Configure MOLT's AWS SDK with the S3 API endpoint and storage access keys:
++
++```sh
++export AWS_ENDPOINT_URL_S3=http://storage.example:9000
++export AWS_ACCESS_KEY_ID=your-access-key
++export AWS_SECRET_ACCESS_KEY=your-secret-key
++export AWS_REGION=us-east-1
++
++molt fetch \
++  --source "$SOURCE_URL" \
++  --target "$TARGET_URL" \
++  --bucket-path s3://migration-bucket/ \
++  --schema-filter public \
++  --table-filter '^categories$'
++```
++
++Use the storage service's S3 API port. For example, RustFS defaults to port
++9000 for S3 and 9001 for its web console. The service must be reachable from
++both MOLT and the CockroachDB nodes when using the default `IMPORT INTO` mode.
++
++MOLT ignores query parameters in `--bucket-path`. Supply credentials and the
++custom endpoint through SDK configuration instead. Remove any inherited
++`AWS_SESSION_TOKEN` when using access keys that do not require a session token.
++
++For a custom endpoint, generated `IMPORT INTO` URLs include `AWS_ENDPOINT`
++from the upload client's configuration. They also include the configured SDK
++region unless `--import-region` explicitly overrides it. This lets CockroachDB
++read from the same storage service without inheriting MOLT's environment.
++Standard AWS S3 URLs continue to use their existing region behavior.
++
++`AWS_ENDPOINT_URL` and service-specific SDK endpoint configuration are resolved
++by the AWS SDK, using the same precedence as the upload client.
++
++CockroachDB may require the `admin` role or `EXTERNALIOIMPLICITACCESS` privilege
++for custom endpoints. See [cloud storage authentication](https://www.cockroachlabs.com/docs/stable/cloud-storage-authentication).
+diff --git a/fetch/datablobstorage/s3.go b/fetch/datablobstorage/s3.go
+index a5664b0..9a62ae1 100644
+--- a/fetch/datablobstorage/s3.go
++++ b/fetch/datablobstorage/s3.go
+@@ -281,8 +281,19 @@ func (s *s3Resource) ImportURL() (string, error) {
+ 		res = fmt.Sprintf("%s&ASSUME_ROLE=%s", res, url.QueryEscape(role))
+ 	}
+ 
+-	if strings.TrimSpace(s.store.importRegion) != "" {
+-		res = fmt.Sprintf("%s&AWS_REGION=%s", res, s.store.importRegion)
++	// IMPORT INTO runs in CockroachDB, which does not inherit MOLT's SDK
++	// configuration. Resolve the endpoint through the S3 client so service-
++	// specific endpoints and SDK precedence match the upload client.
++	endpoint := aws.ToString(newS3Client(s.cfg, false).Options().BaseEndpoint)
++	region := s.store.importRegion
++	if endpoint != "" {
++		res = fmt.Sprintf("%s&AWS_ENDPOINT=%s", res, url.QueryEscape(endpoint))
++		if strings.TrimSpace(region) == "" {
++			region = s.cfg.Region
++		}
++	}
++	if strings.TrimSpace(region) != "" {
++		res = fmt.Sprintf("%s&AWS_REGION=%s", res, url.QueryEscape(region))
+ 	}
+ 
+ 	return res, nil
+diff --git a/fetch/datablobstorage/s3_import_endpoint_test.go b/fetch/datablobstorage/s3_import_endpoint_test.go
+new file mode 100644
+index 0000000..1bfb2b2
+--- /dev/null
++++ b/fetch/datablobstorage/s3_import_endpoint_test.go
+@@ -0,0 +1,75 @@
++package datablobstorage
++
++import (
++	"context"
++	"net/url"
++	"testing"
++
++	"github.com/aws/aws-sdk-go-v2/aws"
++	"github.com/stretchr/testify/require"
++)
++
++func TestS3ResourceImportURLCustomEndpoint(t *testing.T) {
++	for _, tc := range []struct {
++		name         string
++		global       string
++		service      string
++		configured   string
++		ignore       string
++		importRegion string
++		implicit     bool
++		wantEndpoint string
++		wantRegion   string
++	}{
++		{name: "standard AWS"},
++		{name: "service endpoint", service: "http://127.0.0.1:9000", wantEndpoint: "http://127.0.0.1:9000", wantRegion: "us-east-1"},
++		{name: "global endpoint", global: "http://127.0.0.1:9000", wantEndpoint: "http://127.0.0.1:9000", wantRegion: "us-east-1"},
++		{name: "service takes precedence", global: "http://global.example:9000", service: "http://service.example:9000", wantEndpoint: "http://service.example:9000", wantRegion: "us-east-1"},
++		{name: "SDK config endpoint", configured: "http://configured.example:9000", wantEndpoint: "http://configured.example:9000", wantRegion: "us-east-1"},
++		{name: "service endpoint matches upload client", service: "http://service.example:9000", configured: "http://configured.example:9000", wantEndpoint: "http://service.example:9000", wantRegion: "us-east-1"},
++		{name: "ignored endpoint", service: "http://127.0.0.1:9000", ignore: "true"},
++		{name: "import region overrides SDK region", service: "http://127.0.0.1:9000", importRegion: "us-west-2", wantEndpoint: "http://127.0.0.1:9000", wantRegion: "us-west-2"},
++		{name: "implicit auth", service: "http://127.0.0.1:9000", implicit: true, wantEndpoint: "http://127.0.0.1:9000", wantRegion: "us-east-1"},
++		{name: "endpoint query round trip", service: "http://127.0.0.1:9000/path?one=a+b&two=c;d", wantEndpoint: "http://127.0.0.1:9000/path?one=a+b&two=c;d", wantRegion: "us-east-1"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			clearAWSCredEnv(t)
++			t.Setenv("AWS_ACCESS_KEY_ID", "test-access")
++			t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
++			t.Setenv("AWS_ENDPOINT_URL", tc.global)
++			t.Setenv("AWS_ENDPOINT_URL_S3", tc.service)
++			t.Setenv("AWS_IGNORE_CONFIGURED_ENDPOINT_URLS", tc.ignore)
++			cfg, err := buildS3Config(context.Background(), &S3Payload{Region: "us-east-1"}, false)
++			require.NoError(t, err)
++			if tc.configured != "" {
++				cfg.BaseEndpoint = aws.String(tc.configured)
++			}
++			r := &s3Resource{
++				cfg: cfg,
++				key: "public.categories/shard_01_part_00000001.csv.gz",
++				store: &s3Store{
++					bucket:          "test-bucket",
++					useImplicitAuth: tc.implicit,
++					importRegion:    tc.importRegion,
++				},
++			}
++			raw, err := r.ImportURL()
++			require.NoError(t, err)
++			parsed, err := url.Parse(raw)
++			require.NoError(t, err)
++			query, err := url.ParseQuery(parsed.RawQuery)
++			require.NoError(t, err)
++			require.Equal(t, tc.wantEndpoint, query.Get("AWS_ENDPOINT"))
++			require.Equal(t, tc.wantRegion, query.Get("AWS_REGION"))
++			require.Equal(t, "test-bucket", parsed.Host)
++			require.Equal(t, "/"+r.key, parsed.Path)
++			if tc.implicit {
++				require.Equal(t, "implicit", query.Get("AUTH"))
++				require.NotContains(t, query, "AWS_SECRET_ACCESS_KEY")
++			} else {
++				require.Equal(t, "test-access", query.Get("AWS_ACCESS_KEY_ID"))
++				require.Equal(t, "test-secret", query.Get("AWS_SECRET_ACCESS_KEY"))
++			}
++		})
++	}
++}
+diff --git a/fetch/schema_creation.go b/fetch/schema_creation.go
+index cdcc671..162c64d 100644
+--- a/fetch/schema_creation.go
++++ b/fetch/schema_creation.go
+@@ -1464,6 +1464,12 @@ func GetAlterTableComputedStatements(
+ 				// is not in the mapping.
+ 				continue
+ 			}
++			// Only columns being re-added as computed columns need a target
++			// type. A plain exclusion may intentionally omit an unsupported
++			// source type, such as PostgreSQL point.
++			if !v.IsComputed || !v.ShouldApplyComputed {
++				continue
++			}
+ 
+ 			// Get the mapping rules here for this specific column (if applicable).
+ 			var mappingRule *typeconv.TypeKV
+diff --git a/fetch/schema_creation_excluded_type_test.go b/fetch/schema_creation_excluded_type_test.go
+new file mode 100644
+index 0000000..3f84c6a
+--- /dev/null
++++ b/fetch/schema_creation_excluded_type_test.go
+@@ -0,0 +1,95 @@
++package fetch
++
++import (
++	"context"
++	"testing"
++
++	"github.com/cockroachdb/molt/dbconn"
++	"github.com/cockroachdb/molt/dbtable"
++	"github.com/cockroachdb/molt/fetch/transforms"
++	"github.com/cockroachdb/molt/testutils"
++	"github.com/rs/zerolog"
++	"github.com/stretchr/testify/require"
++)
++
++// Excluded columns can have types unsupported by CockroachDB. Computed-column
++// setup must not try to convert those types unless it will re-add the column.
++func TestGetAlterTableComputedStatementsExcludedUnsupportedType(t *testing.T) {
++	ctx := context.Background()
++	const dbName = "molt_excluded_type_regression"
++	source, err := dbconn.TestOnlyCleanDatabase(ctx, "source", testutils.PGConnStr(), dbName)
++	require.NoError(t, err)
++	t.Cleanup(func() {
++		require.NoError(t, source.Close(ctx))
++		require.NoError(t, dbconn.TestOnlyDropDatabase(ctx, "source", testutils.PGConnStr(), dbName))
++	})
++	_, err = source.(*dbconn.PGConn).Exec(ctx, `CREATE TABLE addresses (
++		id INT PRIMARY KEY,
++		coordinates POINT,
++		available_during INT4RANGE,
++		delivery_window TSTZRANGE,
++		coordinates_x FLOAT8 GENERATED ALWAYS AS (coordinates[0]) STORED
++	)`)
++	require.NoError(t, err)
++	name := dbtable.Name{Schema: "public", Table: "addresses"}
++	table := dbtable.DBTable{Name: name, RenamedTo: name}
++	for _, tc := range []struct {
++		name    string
++		columns map[string]transforms.ColumnDetails
++		wantDDL bool
++		wantErr bool
++	}{
++		{
++			name: "plain exclusions",
++			columns: map[string]transforms.ColumnDetails{
++				"coordinates": {}, "available_during": {}, "delivery_window": {},
++			},
++		},
++		{
++			name: "computed column not requested",
++			columns: map[string]transforms.ColumnDetails{
++				"coordinates": {IsComputed: true, ShouldApplyComputed: false},
++			},
++		},
++		{
++			name: "noncomputed column with apply flag",
++			columns: map[string]transforms.ColumnDetails{
++				"coordinates": {IsComputed: false, ShouldApplyComputed: true},
++			},
++		},
++		{
++			name: "mixed exclusions and computed column",
++			columns: map[string]transforms.ColumnDetails{
++				"coordinates":   {},
++				"coordinates_x": {IsComputed: true, ShouldApplyComputed: true, ComputedExpression: "id::FLOAT8"},
++			},
++			wantDDL: true,
++		},
++		{
++			name: "unsupported computed column still fails",
++			columns: map[string]transforms.ColumnDetails{
++				"coordinates": {IsComputed: true, ShouldApplyComputed: true, ComputedExpression: "NULL"},
++			},
++			wantErr: true,
++		},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			stmts, err := GetAlterTableComputedStatements(ctx, zerolog.Nop(),
++				dbconn.OrderedConns{source, nil}, []dbtable.DBTable{table}, nil,
++				transforms.TableExcludedColumnMap{name: tc.columns})
++			if tc.wantErr {
++				require.ErrorContains(t, err, "Unknown OID")
++				return
++			}
++			require.NoError(t, err)
++			if tc.wantDDL {
++				require.Len(t, stmts, 1)
++				require.Contains(t, stmts[0], "ADD COLUMN coordinates_x FLOAT8")
++				require.Contains(t, stmts[0], "AS (id::FLOAT8) STORED")
++				require.NotContains(t, stmts[0], "ADD COLUMN coordinates ")
++			} else {
++				require.Empty(t, stmts)
++			}
++		})
++	}
++}

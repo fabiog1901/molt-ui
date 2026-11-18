@@ -275,9 +275,8 @@
                     </template>
                     <template x-if="option.file_input">
                       <div class="file-upload">
-                        <label :for="'file-' + option.name" class="sr-only" x-text="'Choose file for ' + option.label"></label>
-                        <input type="file" :id="'file-' + option.name" :aria-describedby="'brief-' + option.name" :disabled="busy || running" @change="uploadOptionFile(option, $event.target.files[0]); $event.target.value = ''">
-                        <small>Choose a file or enter a path above. Selected files are copied to Molt UI for this and future runs (up to 32 MiB).</small>
+                        <button type="button" :aria-label="'Choose file for ' + option.label" :disabled="busy || running" @click="chooseOptionFile(option)">Choose File</button>
+                        <small>Choose a file on the computer running Molt UI, or enter its absolute path above. The original file is used directly.</small>
                       </div>
                     </template>
                     <small :id="'brief-' + option.name" x-text="option.brief"></small>

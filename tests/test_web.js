@@ -58,35 +58,48 @@ test('invocation display falls back to legacy text and handles imported logs', (
   assert.equal(app.formatInvocation({argv: ['molt', 'convert', 'postgres']}), 'molt convert postgres');
 });
 
-test('native file selection uploads contents and updates the flag to the saved path', async () => {
-  const {app, calls} = createApp([{body: {path: '/data/command-files/input-transformations.json'}}]);
+test('Python file selection puts the original absolute path in the flag', async () => {
+  const {app, calls} = createApp([{body: {path: '/Users/fabio/examples/transformation.json'}}]);
   const option = {name: 'transformations-file', kind: 'string', file_input: true};
-  const file = {name: 'transformations file.json'};
+  app.commands = [{id: 'fetch', options: [option]}];
   app.preview = {invocation: 'old'};
-  await app.uploadOptionFile(option, file);
-  assert.equal(calls[0].path, '/api/command-files');
-  assert.equal(calls[0].options.body, file);
-  assert.equal(calls[0].options.headers['X-Filename'], 'transformations%20file.json');
-  assert.equal(app.values[option.name], '/data/command-files/input-transformations.json');
+  await app.chooseOptionFile(option);
+  assert.equal(calls[0].path, '/api/file-picker');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.equal(calls[0].options.body, undefined);
+  assert.equal(app.fieldValue(option), '/Users/fabio/examples/transformation.json');
+  assert.equal(app.requestPayload().options['transformations-file'], '/Users/fabio/examples/transformation.json');
   assert.equal(app.preview, null);
   assert.equal(app.busy, false);
 });
 
-test('failed file uploads retain the entered path and show an error in the wizard', async () => {
-  const {app} = createApp([{status: 413, body: {detail: 'Command files are limited to 32 MiB.'}}]);
+test('failed file pickers retain the entered path and show an error in the wizard', async () => {
+  const {app} = createApp([{status: 503, body: {detail: 'Could not open the file picker.'}}]);
   const option = {name: 'schema', kind: 'string'};
   app.values.schema = '/original.sql';
-  await app.uploadOptionFile(option, {name: 'new.sql'});
-  assert.equal(app.wizardError, 'Command files are limited to 32 MiB.');
+  await app.chooseOptionFile(option);
+  assert.equal(app.wizardError, 'Could not open the file picker.');
   assert.equal(app.values.schema, '/original.sql');
   assert.equal(app.busy, false);
 });
 
-test('cancelling file selection and selecting while busy do not change options', async () => {
+test('cancelling the Python picker preserves the field and command preview', async () => {
+  const {app} = createApp([{body: {path: null}}]);
+  app.values.schema = '/original.sql';
+  app.preview = {invocation: 'original'};
+  await app.chooseOptionFile({name: 'schema'});
+  assert.equal(app.values.schema, '/original.sql');
+  assert.equal(app.preview.invocation, 'original');
+  assert.equal(app.busy, false);
+});
+
+test('file selection is unavailable while busy or running', async () => {
   const {app, calls} = createApp([]);
-  await app.uploadOptionFile({name: 'schema'}, undefined);
   app.busy = true;
-  await app.uploadOptionFile({name: 'schema'}, {name: 'schema.sql'});
+  await app.chooseOptionFile({name: 'schema'});
+  app.busy = false;
+  app.job = snapshot();
+  await app.chooseOptionFile({name: 'schema'});
   assert.equal(calls.length, 0);
 });
 

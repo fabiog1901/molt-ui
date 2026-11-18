@@ -50,31 +50,34 @@ def test_frontend_assets_are_served(api_client, command_catalog):
         assert client.get("/api/unknown").status_code == 404
 
 
-def test_command_file_upload_preserves_content_and_uses_unique_persistent_paths(api_client, tmp_path):
-    from pathlib import Path
-
-    content = b'{"tables": []}'
+def test_file_picker_returns_original_path_without_copying(api_client, tmp_path, monkeypatch):
+    selected = tmp_path / "transformation file.json"
+    selected.write_text('{"transforms": []}')
+    picker = Mock(return_value=str(selected))
+    monkeypatch.setattr("molt_ui.api.app.choose_file", picker)
     with api_client(Mock(spec=MoltService)) as client:
-        response = client.post("/api/command-files", content=content,
-                               headers={"X-Filename": "..%2Ftransformations%20file.json"})
-        assert response.status_code == 201
-        selected = Path(response.json()["path"])
-        assert selected.parent == tmp_path / "command-files"
-        assert selected.name.endswith("-transformations file.json")
-        assert selected.read_bytes() == content
-        second = client.post("/api/command-files", content=b"different",
-                             headers={"X-Filename": "transformations file.json"})
-        assert second.json()["path"] != str(selected)
-        assert selected.read_bytes() == content
-    assert selected.read_bytes() == content
+        response = client.post("/api/file-picker")
+        assert response.status_code == 200
+        assert response.json() == {"path": str(selected)}
+    picker.assert_called_once_with()
+    assert not (tmp_path / "command-files").exists()
 
 
-def test_oversized_command_file_upload_removes_partial_file(api_client, tmp_path, monkeypatch):
-    monkeypatch.setattr("molt_ui.api.app.MAX_COMMAND_FILE_SIZE", 4)
+def test_file_picker_cancellation(api_client, monkeypatch):
+    monkeypatch.setattr("molt_ui.api.app.choose_file", lambda: None)
     with api_client(Mock(spec=MoltService)) as client:
-        response = client.post("/api/command-files", content=b"too large")
-        assert response.status_code == 413
-        assert list((tmp_path / "command-files").iterdir()) == []
+        response = client.post("/api/file-picker")
+        assert response.status_code == 200
+        assert response.json() == {"path": None}
+
+
+def test_file_picker_failure_is_displayable(api_client, monkeypatch):
+    picker = Mock(side_effect=RuntimeError("A file picker is already open."))
+    monkeypatch.setattr("molt_ui.api.app.choose_file", picker)
+    with api_client(Mock(spec=MoltService)) as client:
+        response = client.post("/api/file-picker")
+        assert response.status_code == 503
+        assert response.json()["detail"] == "A file picker is already open."
 
 
 def test_job_api_runs_real_help_and_reports_validation_errors(api_client, command_catalog):

@@ -53,6 +53,12 @@ molt-web
 Open <http://127.0.0.1:8000>. Select **Configure command** to choose an operation,
 enter your connections, and review the command before clicking **Run**.
 
+For file parameters, **Choose File** opens a desktop dialog on the computer
+running Molt UI and fills in the original absolute path. MOLT uses that file
+directly, so edits to it also apply to future runs. You can also enter a path
+manually. macOS uses its built-in picker; Linux and Windows require Tkinter
+and a desktop session.
+
 Choose a listen address and port with `molt-web --host 127.0.0.1 --port 8080`.
 Use `molt-web --reload` to restart the server when source files change during development.
 Additional Uvicorn options can be passed as `--key=value` or `--key value`, for

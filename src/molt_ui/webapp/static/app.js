@@ -134,15 +134,12 @@ document.addEventListener('alpine:init', () => {
       if (['source', 'target'].includes(option.name)) return 'text';
       return option.secret ? 'password' : 'text';
     },
-    async uploadOptionFile(option, file) {
-      if (!file || this.busy || this.running) return;
-      this.busy = true; this.wizardError = ''; this.preview = null;
+    async chooseOptionFile(option) {
+      if (this.busy || this.running) return;
+      this.busy = true; this.wizardError = '';
       try {
-        const uploaded = await this.request('/api/command-files', {
-          method: 'POST', headers: {'Content-Type': 'application/octet-stream',
-            'X-Filename': encodeURIComponent(file.name)}, body: file,
-        });
-        this.setOption(option, uploaded.path);
+        const selected = await this.request('/api/file-picker', {method: 'POST'});
+        if (selected.path) this.setOption(option, selected.path);
       } catch (error) { this.wizardError = error.message; }
       finally { this.busy = false; }
     },

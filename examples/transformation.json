@@ -1,0 +1,70 @@
+{
+  "transforms": [
+    {
+      "id": 1,
+      "resource_specifier": {
+        "schema": "^order_demo$",
+        "table": "^addresses$"
+      },
+      "column_exclusion_opts": {
+        "column": "^coordinates$",
+        "add_computed_def": false
+      }
+    },
+    {
+      "id": 2,
+      "resource_specifier": {
+        "schema": "^order_demo$",
+        "table": "^products$"
+      },
+      "column_exclusion_opts": {
+        "column": "^available_during$",
+        "add_computed_def": false
+      }
+    },
+    {
+      "id": 3,
+      "resource_specifier": {
+        "schema": "^order_demo$",
+        "table": "^shipments$"
+      },
+      "column_exclusion_opts": {
+        "column": "^delivery_window$",
+        "add_computed_def": false
+      }
+    },
+    {
+      "id": 4,
+      "resource_specifier": {
+        "schema": "^order_demo$",
+        "table": "^products$"
+      },
+      "column_exclusion_opts": {
+        "column": "^search_document$",
+        "add_computed_def": false
+      }
+    },
+    {
+      "id": 5,
+      "resource_specifier": {
+        "schema": "^order_demo$",
+        "table": "^order_items$"
+      },
+      "column_exclusion_opts": {
+        "column": "^line_total$",
+        "add_computed_def": false
+      }
+    },
+    {
+      "id": 6,
+      "resource_specifier": {
+        "schema": "^order_demo$",
+        "table": "^orders$"
+      },
+      "column_exclusion_opts": {
+        "column": "^total$",
+        "add_computed_def": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,1989 @@
+# dbworkload v0.16 seed definition for order_demo.sql.
+# Originally generated using dbworkload.utils.common.ddl_to_yaml, then adapted
+# for PostgreSQL datatypes, constraints, relationships and realistic sampling.
+#
+# From examples/postgres (the existing importer references 4-worker filenames):
+#   dbworkload util csv --input order_demo.seed.yaml --output order_demo --procs 4 --csv-max-rows 100000
+# Counts are defined below, not inferred from the DDL. Target tables must be empty.
+# Table keys use dbworkload's schema__table convention. Load in YAML table order,
+# including all three order_items batches. CSV/TSV files have no header.
+# Use PostgreSQL COPY with explicit column lists, FORMAT csv, tab delimiter,
+# and NULL ''. Reset identity sequences after loading (see import_order_demo.sql).
+# Computed search_document, total and line_total columns are omitted.
+# Orders are routed through the parent to its 16 hash partitions.
+# audit.audit_event is not seeded; dimension UPDATE triggers populate it.
+#
+# Sampling dependencies (keep population order/length, seeds and weights aligned):
+# - Customers.full_name and addresses.recipient share seed 103 and row counts.
+# - Address city/region/postal_code/country_code/coordinates share seed 203.
+# - Orders.customer_id and shipping_address_id use matching integer generators.
+# - All order/payment/shipment timeline choices share seed 901 (32 profiles).
+# - All item quantities/prices/discounts, order totals and payment amounts
+#   share seed 902 (32 profiles); counts/workers must match across these tables.
+# - Shipping snapshots sample historical addresses independently of current ones.
+# - sort-by stays empty to preserve generated row relationships.
+# Changing process count changes sampled values and filenames; use the same
+# process count for every table, and update import paths if it changes.
+# Constants are deliberate: completed/captured lifecycle, one default address,
+# NULL category parents and fixed item line numbers preserve baseline semantics.
+# This YAML only generates files. CLI IMPORT INTO output targets CockroachDB;
+# use the PostgreSQL loader instead.
+#
+order_demo__customers:
+- count: 10000
+  sort-by: []
+  columns:
+    customer_id:
+      type: sequence
+      args:
+        start: 1
+    external_id:
+      type: uuid
+      args:
+        seed: 101
+        null_pct: 0
+    email:
+      type: string
+      args:
+        min: 24
+        max: 24
+        prefix: customer@
+        seed: 102
+        null_pct: 0
+    full_name:
+      type: choice
+      args:
+        population:
+        - Alex Morgan
+        - Jordan Ellis
+        - Taylor Brooks
+        - Casey Rivera
+        - Riley Chen
+        - Morgan Patel
+        - Avery Thompson
+        - Jamie Wilson
+        - Quinn Bennett
+        - Cameron Reed
+        - Drew Parker
+        - Skyler Davis
+        - Sam Nguyen
+        - Robin Campbell
+        - Jesse Clarke
+        - Charlie Evans
+        - Dakota Lewis
+        - Reese Martin
+        - Rowan Hughes
+        - Finley Cooper
+        - Emerson Scott
+        - Hayden Ross
+        - Peyton Murphy
+        - Blair Anderson
+        - Sage Collins
+        - Arden Walker
+        - Elliot Green
+        - Marley Adams
+        - Remy Laurent
+        - Noa Fischer
+        - Kai Suzuki
+        - Luca Romano
+        seed: 103
+        null_pct: 0
+    date_of_birth:
+      type: date
+      args:
+        start: '1960-01-01'
+        end: '2005-12-31'
+        seed: 104
+        null_pct: 0
+    is_active:
+      type: choice
+      args:
+        population:
+        - 'true'
+        - 'false'
+        seed: 110
+        null_pct: 0
+        weights:
+        - 95
+        - 5
+    loyalty_points:
+      type: integer
+      args:
+        min: 0
+        max: 10000
+        seed: 105
+        null_pct: 0
+    preferences:
+      type: choice
+      args:
+        population:
+        - '{"locale":"en-US","notifications":{"email":true,"sms":false}}'
+        - '{"locale":"en-GB","notifications":{"email":false,"sms":true}}'
+        - '{"locale":"fr-FR","interests":["books","outdoors"]}'
+        seed: 106
+        null_pct: 0
+    tags:
+      type: choice
+      args:
+        population:
+        - retail
+        - loyal
+        - newsletter
+        - early_access
+        seed: 107
+        null_pct: 0
+        array: 2
+    last_login_ip:
+      type: choice
+      args:
+        population:
+        - 192.0.2.10
+        - 198.51.100.20
+        - 2001:db8::42
+        seed: 108
+        null_pct: 0
+    created_at:
+      type: choice
+      args:
+        population:
+        - '2024-01-01T00:00:00+00:00'
+        - '2024-01-16T00:00:00+00:00'
+        - '2024-01-31T00:00:00+00:00'
+        - '2024-02-15T00:00:00+00:00'
+        - '2024-03-01T00:00:00+00:00'
+        - '2024-03-16T00:00:00+00:00'
+        - '2024-03-31T00:00:00+00:00'
+        - '2024-04-15T00:00:00+00:00'
+        - '2024-04-30T00:00:00+00:00'
+        - '2024-05-15T00:00:00+00:00'
+        - '2024-05-30T00:00:00+00:00'
+        - '2024-06-14T00:00:00+00:00'
+        - '2024-06-29T00:00:00+00:00'
+        - '2024-07-14T00:00:00+00:00'
+        - '2024-07-29T00:00:00+00:00'
+        - '2024-08-13T00:00:00+00:00'
+        - '2024-08-28T00:00:00+00:00'
+        - '2024-09-12T00:00:00+00:00'
+        - '2024-09-27T00:00:00+00:00'
+        - '2024-10-12T00:00:00+00:00'
+        - '2024-10-27T00:00:00+00:00'
+        - '2024-11-11T00:00:00+00:00'
+        - '2024-11-26T00:00:00+00:00'
+        - '2024-12-11T00:00:00+00:00'
+        - '2024-12-26T00:00:00+00:00'
+        - '2025-01-10T00:00:00+00:00'
+        - '2025-01-25T00:00:00+00:00'
+        - '2025-02-09T00:00:00+00:00'
+        - '2025-02-24T00:00:00+00:00'
+        - '2025-03-11T00:00:00+00:00'
+        - '2025-03-26T00:00:00+00:00'
+        - '2025-04-10T00:00:00+00:00'
+        seed: 111
+        null_pct: 0
+order_demo__addresses:
+- count: 10000
+  sort-by: []
+  columns:
+    address_id:
+      type: sequence
+      args:
+        start: 1
+    customer_id:
+      type: sequence
+      args:
+        start: 1
+    recipient:
+      type: choice
+      args:
+        population:
+        - Alex Morgan
+        - Jordan Ellis
+        - Taylor Brooks
+        - Casey Rivera
+        - Riley Chen
+        - Morgan Patel
+        - Avery Thompson
+        - Jamie Wilson
+        - Quinn Bennett
+        - Cameron Reed
+        - Drew Parker
+        - Skyler Davis
+        - Sam Nguyen
+        - Robin Campbell
+        - Jesse Clarke
+        - Charlie Evans
+        - Dakota Lewis
+        - Reese Martin
+        - Rowan Hughes
+        - Finley Cooper
+        - Emerson Scott
+        - Hayden Ross
+        - Peyton Murphy
+        - Blair Anderson
+        - Sage Collins
+        - Arden Walker
+        - Elliot Green
+        - Marley Adams
+        - Remy Laurent
+        - Noa Fischer
+        - Kai Suzuki
+        - Luca Romano
+        seed: 103
+        null_pct: 0
+    street:
+      type: choice
+      args:
+        population:
+        - 14 Maple Street
+        - 28 Oak Avenue
+        - 63 Cedar Lane
+        - 105 Pine Road
+        - 207 Birch Drive
+        - 319 Willow Court
+        - 42 Elm Street
+        - 76 Ash Avenue
+        - 91 Cherry Lane
+        - 118 Walnut Road
+        - 234 Spruce Drive
+        - 56 Poplar Court
+        - 83 Chestnut Street
+        - 152 Magnolia Avenue
+        - 37 Cypress Lane
+        - 264 Sycamore Road
+        - 18 Beech Drive
+        - 95 Redwood Court
+        - 143 Aspen Street
+        - 62 Juniper Avenue
+        - 211 Laurel Lane
+        - 74 Hawthorn Road
+        - 126 Linden Drive
+        - 308 Fir Court
+        - 45 Acacia Street
+        - 167 Olive Avenue
+        - 89 Palm Lane
+        - 251 Dogwood Road
+        - 33 Alder Drive
+        - 194 Hazel Court
+        - 72 Rowan Street
+        - 136 Holly Avenue
+        seed: 201
+        null_pct: 0
+    city:
+      type: choice
+      args:
+        population:
+        - New York
+        - Boston
+        - Seattle
+        - Portland
+        - Austin
+        - Denver
+        - Chicago
+        - San Francisco
+        - Toronto
+        - Vancouver
+        - Montreal
+        - Calgary
+        - Ottawa
+        - Halifax
+        - London
+        - Manchester
+        - Edinburgh
+        - Cardiff
+        - Bristol
+        - Belfast
+        - Berlin
+        - Munich
+        - Hamburg
+        - Cologne
+        - Paris
+        - Lyon
+        - Bordeaux
+        - Lille
+        - Sydney
+        - Melbourne
+        - Brisbane
+        - Perth
+        seed: 203
+        null_pct: 0
+    region:
+      type: choice
+      args:
+        population:
+        - NY
+        - MA
+        - WA
+        - OR
+        - TX
+        - CO
+        - IL
+        - CA
+        - 'ON'
+        - BC
+        - QC
+        - AB
+        - 'ON'
+        - NS
+        - England
+        - England
+        - Scotland
+        - Wales
+        - England
+        - Northern Ireland
+        - Berlin
+        - Bavaria
+        - Hamburg
+        - North Rhine-Westphalia
+        - Ile-de-France
+        - Auvergne-Rhone-Alpes
+        - Nouvelle-Aquitaine
+        - Hauts-de-France
+        - NSW
+        - VIC
+        - QLD
+        - WA
+        seed: 203
+        null_pct: 0
+    postal_code:
+      type: choice
+      args:
+        population:
+        - '10001'
+        - 02108
+        - '98101'
+        - '97205'
+        - '78701'
+        - '80202'
+        - '60601'
+        - '94103'
+        - M5V 2T6
+        - V6B 1A1
+        - H2Y 1C6
+        - T2P 1J9
+        - K1P 1J1
+        - B3J 1S9
+        - SW1A 1AA
+        - M1 1AE
+        - EH1 1YZ
+        - CF10 1EP
+        - BS1 4ST
+        - BT1 5GS
+        - '10115'
+        - '80331'
+        - '20095'
+        - '50667'
+        - '75001'
+        - '69001'
+        - '33000'
+        - '59000'
+        - '2000'
+        - '3000'
+        - '4000'
+        - '6000'
+        seed: 203
+        null_pct: 0
+    country_code:
+      type: choice
+      args:
+        population:
+        - US
+        - US
+        - US
+        - US
+        - US
+        - US
+        - US
+        - US
+        - CA
+        - CA
+        - CA
+        - CA
+        - CA
+        - CA
+        - GB
+        - GB
+        - GB
+        - GB
+        - GB
+        - GB
+        - DE
+        - DE
+        - DE
+        - DE
+        - FR
+        - FR
+        - FR
+        - FR
+        - AU
+        - AU
+        - AU
+        - AU
+        seed: 203
+        null_pct: 0
+    coordinates:
+      type: choice
+      args:
+        population:
+        - (-73.99,40.75)
+        - (-71.06,42.36)
+        - (-122.33,47.61)
+        - (-122.68,45.52)
+        - (-97.74,30.27)
+        - (-104.99,39.75)
+        - (-87.62,41.89)
+        - (-122.41,37.77)
+        - (-79.39,43.65)
+        - (-123.12,49.28)
+        - (-73.55,45.51)
+        - (-114.06,51.05)
+        - (-75.70,45.42)
+        - (-63.57,44.65)
+        - (-0.14,51.50)
+        - (-2.24,53.48)
+        - (-3.19,55.95)
+        - (-3.18,51.48)
+        - (-2.59,51.45)
+        - (-5.93,54.60)
+        - (13.39,52.53)
+        - (11.58,48.14)
+        - (10.00,53.55)
+        - (6.96,50.94)
+        - (2.34,48.86)
+        - (4.83,45.77)
+        - (-0.58,44.84)
+        - (3.06,50.63)
+        - (151.21,-33.87)
+        - (144.96,-37.81)
+        - (153.03,-27.47)
+        - (115.86,-31.95)
+        seed: 203
+        null_pct: 0
+    delivery_notes:
+      type: choice
+      args:
+        population:
+        - Leave with reception
+        - Ring the doorbell
+        - Call on arrival
+        - Use the side entrance
+        - Leave in the parcel locker
+        - Do not leave unattended
+        - Deliver after 09:00
+        - Deliver before 18:00
+        - Front desk accepts parcels
+        - Use the covered porch
+        - Building access via intercom
+        - Knock twice
+        - Signature required
+        - Deliver to the loading bay
+        - Concierge available weekdays
+        - Please avoid lunch hour
+        - Keep parcel upright
+        - Handle with care
+        - Leave behind the gate
+        - Use rear entrance
+        - Text when nearby
+        - Please use the lift
+        - Apartment on second floor
+        - Office on third floor
+        - Reception closes at 17:00
+        - Weekend delivery welcome
+        - Weekday delivery preferred
+        - Leave in the secure box
+        - No access through garage
+        - Use the main lobby
+        - Ask for the facilities team
+        - Contact recipient if delayed
+        seed: 204
+        null_pct: 0
+    is_default:
+      type: constant
+      args:
+        value: 'true'
+order_demo__categories:
+- count: 12
+  sort-by: []
+  columns:
+    category_id:
+      type: sequence
+      args:
+        start: 1
+    parent_category_id:
+      type: constant
+      args:
+        value: ''
+    name:
+      type: choice
+      args:
+        population:
+        - Books
+        - Electronics
+        - Home
+        - Garden
+        - Clothing
+        - Footwear
+        - Sports
+        - Outdoors
+        - Toys
+        - Games
+        - Health
+        - Beauty
+        - Stationery
+        - Kitchen
+        - Furniture
+        - Lighting
+        - Travel
+        - Pets
+        - Music
+        - Art
+        - Crafts
+        - Tools
+        - Automotive
+        - Groceries
+        - Photography
+        - Fitness
+        - Cycling
+        - Camping
+        - Storage
+        - Office
+        - Accessories
+        - Gifts
+        seed: 301
+        null_pct: 0
+    slug:
+      type: string
+      args:
+        min: 24
+        max: 24
+        prefix: category-
+        seed: 302
+        null_pct: 0
+order_demo__products:
+- count: 250
+  sort-by: []
+  columns:
+    product_id:
+      type: sequence
+      args:
+        start: 1
+    category_id:
+      type: integer
+      args:
+        min: 1
+        max: 12
+        seed: 401
+        null_pct: 0
+    sku:
+      type: string
+      args:
+        min: 24
+        max: 24
+        prefix: SKU-
+        seed: 402
+        null_pct: 0
+    name:
+      type: choice
+      args:
+        population:
+        - Canvas tote bag
+        - Insulated water bottle
+        - Travel mug
+        - Cotton tea towel
+        - Bamboo cutting board
+        - Desk organizer
+        - Wireless mouse
+        - USB charging cable
+        - Notebook set
+        - Ballpoint pen set
+        - Pocket flashlight
+        - Compact umbrella
+        - Running socks
+        - Wool beanie
+        - Garden gloves
+        - Plant mister
+        - Yoga strap
+        - Resistance band
+        - Camping bowl
+        - Picnic blanket
+        - Luggage tag
+        - Packing cube
+        - Phone stand
+        - Cable organizer
+        - Scented candle
+        - Ceramic planter
+        - Storage basket
+        - Photo frame
+        - Measuring spoon set
+        - Silicone spatula
+        - Microfiber cloth
+        - Reusable lunch box
+        seed: 403
+        null_pct: 0
+    description:
+      type: choice
+      args:
+        population:
+        - Compact and lightweight; designed for everyday use.
+        - Compact and lightweight; designed for travel.
+        - Compact and lightweight; designed for home and office.
+        - Compact and lightweight; designed for outdoor activities.
+        - Durable construction; designed for everyday use.
+        - Durable construction; designed for travel.
+        - Durable construction; designed for home and office.
+        - Durable construction; designed for outdoor activities.
+        - Easy to clean; designed for everyday use.
+        - Easy to clean; designed for travel.
+        - Easy to clean; designed for home and office.
+        - Easy to clean; designed for outdoor activities.
+        - Recyclable packaging; designed for everyday use.
+        - Recyclable packaging; designed for travel.
+        - Recyclable packaging; designed for home and office.
+        - Recyclable packaging; designed for outdoor activities.
+        - Minimalist design; designed for everyday use.
+        - Minimalist design; designed for travel.
+        - Minimalist design; designed for home and office.
+        - Minimalist design; designed for outdoor activities.
+        - Soft-touch finish; designed for everyday use.
+        - Soft-touch finish; designed for travel.
+        - Soft-touch finish; designed for home and office.
+        - Soft-touch finish; designed for outdoor activities.
+        - Made with recycled materials; designed for everyday use.
+        - Made with recycled materials; designed for travel.
+        - Made with recycled materials; designed for home and office.
+        - Made with recycled materials; designed for outdoor activities.
+        - Space-saving design; designed for everyday use.
+        - Space-saving design; designed for travel.
+        - Space-saving design; designed for home and office.
+        - Space-saving design; designed for outdoor activities.
+        seed: 404
+        null_pct: 0
+    price:
+      type: choice
+      args:
+        population:
+        - '4.95'
+        - '7.45'
+        - '9.95'
+        - '12.45'
+        - '14.95'
+        - '17.45'
+        - '19.95'
+        - '22.45'
+        - '24.95'
+        - '27.45'
+        - '29.95'
+        - '32.45'
+        - '34.95'
+        - '37.45'
+        - '39.95'
+        - '42.45'
+        - '44.95'
+        - '47.45'
+        - '49.95'
+        - '52.45'
+        - '54.95'
+        - '57.45'
+        - '59.95'
+        - '62.45'
+        - '64.95'
+        - '67.45'
+        - '69.95'
+        - '72.45'
+        - '74.95'
+        - '77.45'
+        - '79.95'
+        - '82.45'
+        seed: 410
+        null_pct: 0
+    weight_kg:
+      type: float
+      args:
+        min: 0.1
+        max: 25
+        round: 3
+        seed: 405
+        null_pct: 0
+    stock_quantity:
+      type: integer
+      args:
+        min: 1000
+        max: 10000
+        seed: 406
+        null_pct: 0
+    attributes:
+      type: choice
+      args:
+        population:
+        - '{"color":"blue","dimensions":{"width_cm":5,"height_cm":12,"depth_cm":2},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"red","dimensions":{"width_cm":6,"height_cm":14,"depth_cm":3},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"green","dimensions":{"width_cm":7,"height_cm":16,"depth_cm":4},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"black","dimensions":{"width_cm":8,"height_cm":18,"depth_cm":5},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        - '{"color":"white","dimensions":{"width_cm":9,"height_cm":20,"depth_cm":6},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"yellow","dimensions":{"width_cm":10,"height_cm":22,"depth_cm":2},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"orange","dimensions":{"width_cm":11,"height_cm":24,"depth_cm":3},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"purple","dimensions":{"width_cm":12,"height_cm":26,"depth_cm":4},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        - '{"color":"blue","dimensions":{"width_cm":13,"height_cm":28,"depth_cm":5},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"red","dimensions":{"width_cm":14,"height_cm":30,"depth_cm":6},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"green","dimensions":{"width_cm":15,"height_cm":32,"depth_cm":2},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"black","dimensions":{"width_cm":16,"height_cm":34,"depth_cm":3},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        - '{"color":"white","dimensions":{"width_cm":17,"height_cm":36,"depth_cm":4},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"yellow","dimensions":{"width_cm":18,"height_cm":38,"depth_cm":5},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"orange","dimensions":{"width_cm":19,"height_cm":40,"depth_cm":6},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"purple","dimensions":{"width_cm":20,"height_cm":42,"depth_cm":2},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        - '{"color":"blue","dimensions":{"width_cm":21,"height_cm":44,"depth_cm":3},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"red","dimensions":{"width_cm":22,"height_cm":46,"depth_cm":4},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"green","dimensions":{"width_cm":23,"height_cm":48,"depth_cm":5},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"black","dimensions":{"width_cm":24,"height_cm":50,"depth_cm":6},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        - '{"color":"white","dimensions":{"width_cm":25,"height_cm":52,"depth_cm":2},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"yellow","dimensions":{"width_cm":26,"height_cm":54,"depth_cm":3},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"orange","dimensions":{"width_cm":27,"height_cm":56,"depth_cm":4},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"purple","dimensions":{"width_cm":28,"height_cm":58,"depth_cm":5},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        - '{"color":"blue","dimensions":{"width_cm":29,"height_cm":60,"depth_cm":6},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"red","dimensions":{"width_cm":30,"height_cm":62,"depth_cm":2},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"green","dimensions":{"width_cm":31,"height_cm":64,"depth_cm":3},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"black","dimensions":{"width_cm":32,"height_cm":66,"depth_cm":4},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        - '{"color":"white","dimensions":{"width_cm":33,"height_cm":68,"depth_cm":5},"materials":["cotton","wool"],"waterproof":false,"warranty":{"months":6}}'
+        - '{"color":"yellow","dimensions":{"width_cm":34,"height_cm":70,"depth_cm":6},"materials":["steel"],"waterproof":true,"warranty":{"months":12}}'
+        - '{"color":"orange","dimensions":{"width_cm":35,"height_cm":72,"depth_cm":2},"materials":["bamboo"],"waterproof":false,"warranty":{"months":24}}'
+        - '{"color":"purple","dimensions":{"width_cm":36,"height_cm":74,"depth_cm":3},"materials":["recycled_plastic"],"waterproof":true,"warranty":{"months":36}}'
+        seed: 407
+        null_pct: 0
+    tags:
+      type: choice
+      args:
+        population:
+        - sale
+        - featured
+        - eco
+        - new
+        seed: 408
+        null_pct: 0
+        array: 2
+    available_during:
+      type: choice
+      args:
+        population:
+        - '[2023-01-01,2027-01-01)'
+        - '[2024-02-01,2028-02-01)'
+        - '[2025-03-01,2029-03-01)'
+        - '[2023-04-01,2027-04-01)'
+        - '[2024-05-01,2028-05-01)'
+        - '[2025-06-01,2029-06-01)'
+        - '[2023-01-01,2027-07-01)'
+        - '[2024-02-01,2028-08-01)'
+        - '[2025-03-01,2029-09-01)'
+        - '[2023-04-01,2027-10-01)'
+        - '[2024-05-01,2028-11-01)'
+        - '[2025-06-01,2029-12-01)'
+        - '[2023-01-01,2027-01-01)'
+        - '[2024-02-01,2028-02-01)'
+        - '[2025-03-01,2029-03-01)'
+        - '[2023-04-01,2027-04-01)'
+        - '[2024-05-01,2028-05-01)'
+        - '[2025-06-01,2029-06-01)'
+        - '[2023-01-01,2027-07-01)'
+        - '[2024-02-01,2028-08-01)'
+        - '[2025-03-01,2029-09-01)'
+        - '[2023-04-01,2027-10-01)'
+        - '[2024-05-01,2028-11-01)'
+        - '[2025-06-01,2029-12-01)'
+        - '[2023-01-01,2027-01-01)'
+        - '[2024-02-01,2028-02-01)'
+        - '[2025-03-01,2029-03-01)'
+        - '[2023-04-01,2027-04-01)'
+        - '[2024-05-01,2028-05-01)'
+        - '[2025-06-01,2029-06-01)'
+        - '[2023-01-01,2027-07-01)'
+        - '[2024-02-01,2028-08-01)'
+        seed: 411
+        null_pct: 0
+    image_digest:
+      type: choice
+      args:
+        population:
+        - \x579ccb374d35676b32561751b0a75814b1a1293a3c0f4daf5d5fe4083c3fa2c4
+        - \xadc1928e3d361934194e7b7a1af3656db9cd028478624ba1400a2229c0268ebe
+        - \xdbcaec4840e40c2097479898cf5687ee4fbf001309de881c6ec11a95ac3be94d
+        - \xaa340a0969dd2c8214a8dea6de7bd1e9620d2aa3b5cd0d63433ea73b806d7656
+        - \x033502cf3d64af062f2fe5f43c1187f5354c8990e478fb4ff4fa200072bb9991
+        - \x6fed14c8ce963704a054cc3b6a849bd8452e26057c62e9af0b2fbf19eb55d455
+        - \xde65c872d4415dbd9684004a594e3ad7202b641be4eb5e97f239c9350580b009
+        - \x0df08fdd9e941268bcdb788f66fe3032ea7a73a8946bb288287ca6bac2c4cf3b
+        - \x210151b624ba4525e5a21608087b0b41c80ed023a7607469f2202007373e7d21
+        - \xe110c0f5ce116e8ef2219900c618384b5d35a0f2ef5d9a7e74aea8b7b9f159d5
+        - \x02515a27731ee9ee1ca084db6f507bfc0478b05f36ab286981f07ea05c4d08e3
+        - \x550015905ef876ad2fca92ae8c0c876db5e989d58a2cacff5b2d74163e575e6d
+        - \x4c852e88ebfd42a53ecf4d352cca2d1a33fdb16126c975e88645dc819eacd83c
+        - \x464b6723f29681e6c29d09627b694f723cb66970ee934a3cfea73658e79bbb91
+        - \x7b680798950ace190fc01fca29980cf94561725081c5c27aa3777ebce8cd536a
+        - \x187bb4a5a25572bf703312f9f0b4c6c3d2e29fd416ae7f27d87cb87236a115a3
+        - \x1459ec7c6aaa342457ed2cd59b6dcaa51761ccd6ac969da6f6d2579cffef87c5
+        - \x433a1976c5fbb9b299f66709ff8199dbbb011bc4ca700b1f477b07e46886e86b
+        - \x750e36b2e821852920d078c05fbb81523445080fe22a6c611d44fc1f016368c0
+        - \x7fa2457bc4764816d1cfbdd5ee5cd494381bfd8b5b095f0167441e6570fd6a8e
+        - \x80f4c0e3b990f2596f6630d4e55360cfb6fe4cf42c8d850f52ad09cef39c7ce8
+        - \xf1bcca3bde57773ca6c7071d8365f5ea88517555ed341576a01d2badd3474163
+        - \x75abd61362cf7d50f918e2d600b3a466ec53a83f64a0d70098be6996c13228dc
+        - \x30f4d9c2697d682f5d20703a78fe7fa6e6bbcc002fea7cd8b40480375206d93b
+        - \xaecc52281c2e1a380c348a1dd929878ca7321ec6661720631c22e3a48959c1a8
+        - \x43ccc1c5755eec7f39d9660ded03bf32a75086e4719197dfa21dbdbea301e89d
+        - \x0b5ce796f69b7d0cca05314d41961498ab9485a1e790a9fac64cf543f8616587
+        - \x155fcadcb238578666e3df5b2367fbfc9a3b43abd718749995093ba63f4023b4
+        - \x1cc68ca3021e1e7e584677f33d03769986e83fcd5a438f634c3caf6be28428c2
+        - \x096429fd696818fe71c59a2410dae291531326ad2b9ec0fb11694654335af959
+        - \xd7ad1f4023cc9470f7bbfe7d199caae8a9e52aa4079fd4bfc4e58fd3dae53ee7
+        - \x3d7e920bdb36a9120a3e287e36c686a8181ff7d716cc1d02daa3a535222ee7c4
+        seed: 409
+        null_pct: 0
+    created_at:
+      type: choice
+      args:
+        population:
+        - '2025-01-01T00:00:00+00:00'
+        - '2025-01-08T00:00:00+00:00'
+        - '2025-01-15T00:00:00+00:00'
+        - '2025-01-22T00:00:00+00:00'
+        - '2025-01-29T00:00:00+00:00'
+        - '2025-02-05T00:00:00+00:00'
+        - '2025-02-12T00:00:00+00:00'
+        - '2025-02-19T00:00:00+00:00'
+        - '2025-02-26T00:00:00+00:00'
+        - '2025-03-05T00:00:00+00:00'
+        - '2025-03-12T00:00:00+00:00'
+        - '2025-03-19T00:00:00+00:00'
+        - '2025-03-26T00:00:00+00:00'
+        - '2025-04-02T00:00:00+00:00'
+        - '2025-04-09T00:00:00+00:00'
+        - '2025-04-16T00:00:00+00:00'
+        - '2025-04-23T00:00:00+00:00'
+        - '2025-04-30T00:00:00+00:00'
+        - '2025-05-07T00:00:00+00:00'
+        - '2025-05-14T00:00:00+00:00'
+        - '2025-05-21T00:00:00+00:00'
+        - '2025-05-28T00:00:00+00:00'
+        - '2025-06-04T00:00:00+00:00'
+        - '2025-06-11T00:00:00+00:00'
+        - '2025-06-18T00:00:00+00:00'
+        - '2025-06-25T00:00:00+00:00'
+        - '2025-07-02T00:00:00+00:00'
+        - '2025-07-09T00:00:00+00:00'
+        - '2025-07-16T00:00:00+00:00'
+        - '2025-07-23T00:00:00+00:00'
+        - '2025-07-30T00:00:00+00:00'
+        - '2025-08-06T00:00:00+00:00'
+        seed: 412
+        null_pct: 0
+order_demo__orders:
+- count: 1000000
+  sort-by: []
+  columns:
+    order_id:
+      type: sequence
+      args:
+        start: 1
+    customer_id:
+      type: integer
+      args:
+        min: 1
+        max: 10000
+        seed: 501
+        null_pct: 0
+    shipping_address_id:
+      type: integer
+      args:
+        min: 1
+        max: 10000
+        seed: 501
+        null_pct: 0
+    status:
+      type: constant
+      args:
+        value: completed
+    placed_at:
+      type: choice
+      args:
+        population:
+        - '2026-01-03T10:00:00+00:00'
+        - '2026-01-10T10:00:00+00:00'
+        - '2026-01-17T10:00:00+00:00'
+        - '2026-01-24T10:00:00+00:00'
+        - '2026-01-31T10:00:00+00:00'
+        - '2026-02-07T10:00:00+00:00'
+        - '2026-02-14T10:00:00+00:00'
+        - '2026-02-21T10:00:00+00:00'
+        - '2026-02-28T10:00:00+00:00'
+        - '2026-03-07T10:00:00+00:00'
+        - '2026-03-14T10:00:00+00:00'
+        - '2026-03-21T10:00:00+00:00'
+        - '2026-03-28T10:00:00+00:00'
+        - '2026-04-04T10:00:00+00:00'
+        - '2026-04-11T10:00:00+00:00'
+        - '2026-04-18T10:00:00+00:00'
+        - '2026-04-25T10:00:00+00:00'
+        - '2026-05-02T10:00:00+00:00'
+        - '2026-05-09T10:00:00+00:00'
+        - '2026-05-16T10:00:00+00:00'
+        - '2026-05-23T10:00:00+00:00'
+        - '2026-05-30T10:00:00+00:00'
+        - '2026-06-06T10:00:00+00:00'
+        - '2026-06-13T10:00:00+00:00'
+        - '2026-06-20T10:00:00+00:00'
+        - '2026-06-27T10:00:00+00:00'
+        - '2026-07-04T10:00:00+00:00'
+        - '2026-07-11T10:00:00+00:00'
+        - '2026-07-18T10:00:00+00:00'
+        - '2026-07-25T10:00:00+00:00'
+        - '2026-08-01T10:00:00+00:00'
+        - '2026-08-08T10:00:00+00:00'
+        seed: 901
+        null_pct: 0
+    paid_at:
+      type: choice
+      args:
+        population:
+        - '2026-01-03T10:01:00+00:00'
+        - '2026-01-10T10:01:00+00:00'
+        - '2026-01-17T10:01:00+00:00'
+        - '2026-01-24T10:01:00+00:00'
+        - '2026-01-31T10:01:00+00:00'
+        - '2026-02-07T10:01:00+00:00'
+        - '2026-02-14T10:01:00+00:00'
+        - '2026-02-21T10:01:00+00:00'
+        - '2026-02-28T10:01:00+00:00'
+        - '2026-03-07T10:01:00+00:00'
+        - '2026-03-14T10:01:00+00:00'
+        - '2026-03-21T10:01:00+00:00'
+        - '2026-03-28T10:01:00+00:00'
+        - '2026-04-04T10:01:00+00:00'
+        - '2026-04-11T10:01:00+00:00'
+        - '2026-04-18T10:01:00+00:00'
+        - '2026-04-25T10:01:00+00:00'
+        - '2026-05-02T10:01:00+00:00'
+        - '2026-05-09T10:01:00+00:00'
+        - '2026-05-16T10:01:00+00:00'
+        - '2026-05-23T10:01:00+00:00'
+        - '2026-05-30T10:01:00+00:00'
+        - '2026-06-06T10:01:00+00:00'
+        - '2026-06-13T10:01:00+00:00'
+        - '2026-06-20T10:01:00+00:00'
+        - '2026-06-27T10:01:00+00:00'
+        - '2026-07-04T10:01:00+00:00'
+        - '2026-07-11T10:01:00+00:00'
+        - '2026-07-18T10:01:00+00:00'
+        - '2026-07-25T10:01:00+00:00'
+        - '2026-08-01T10:01:00+00:00'
+        - '2026-08-08T10:01:00+00:00'
+        seed: 901
+        null_pct: 0
+    subtotal:
+      type: choice
+      args:
+        population:
+        - '56.50'
+        - '52.00'
+        - '60.00'
+        - '78.50'
+        - '76.00'
+        - '82.00'
+        - '100.50'
+        - '98.00'
+        - '106.00'
+        - '122.50'
+        - '120.00'
+        - '128.00'
+        - '146.50'
+        - '142.00'
+        - '150.00'
+        - '168.50'
+        - '166.00'
+        - '172.00'
+        - '190.50'
+        - '188.00'
+        - '196.00'
+        - '212.50'
+        - '210.00'
+        - '218.00'
+        - '236.50'
+        - '232.00'
+        - '240.00'
+        - '258.50'
+        - '256.00'
+        - '262.00'
+        - '280.50'
+        - '278.00'
+        seed: 902
+        null_pct: 0
+    tax:
+      type: choice
+      args:
+        population:
+        - '4.52'
+        - '4.16'
+        - '4.80'
+        - '6.28'
+        - '6.08'
+        - '6.56'
+        - '8.04'
+        - '7.84'
+        - '8.48'
+        - '9.80'
+        - '9.60'
+        - '10.24'
+        - '11.72'
+        - '11.36'
+        - '12.00'
+        - '13.48'
+        - '13.28'
+        - '13.76'
+        - '15.24'
+        - '15.04'
+        - '15.68'
+        - '17.00'
+        - '16.80'
+        - '17.44'
+        - '18.92'
+        - '18.56'
+        - '19.20'
+        - '20.68'
+        - '20.48'
+        - '20.96'
+        - '22.44'
+        - '22.24'
+        seed: 902
+        null_pct: 0
+    shipping_fee:
+      type: choice
+      args:
+        population:
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        - '0.00'
+        - '3.99'
+        - '5.00'
+        - '7.50'
+        seed: 902
+        null_pct: 0
+    metadata:
+      type: choice
+      args:
+        population:
+        - '{"channel":"web","campaign":{"source":"newsletter","code":"FALL26"}}'
+        - '{"channel":"mobile","device":{"os":"iOS","version":18}}'
+        - '{"channel":"web","gift":true,"instructions":null}'
+        seed: 502
+        null_pct: 0
+    shipping_snapshot:
+      type: choice
+      args:
+        population:
+        - '{"recipient":"Alex Morgan","street":"14 Maple Street","city":"New York","region":"NY","postal_code":"10001","country_code":"US"}'
+        - '{"recipient":"Jordan Ellis","street":"28 Oak Avenue","city":"Boston","region":"MA","postal_code":"02108","country_code":"US"}'
+        - '{"recipient":"Taylor Brooks","street":"63 Cedar Lane","city":"Seattle","region":"WA","postal_code":"98101","country_code":"US"}'
+        - '{"recipient":"Casey Rivera","street":"105 Pine Road","city":"Portland","region":"OR","postal_code":"97205","country_code":"US"}'
+        - '{"recipient":"Riley Chen","street":"207 Birch Drive","city":"Austin","region":"TX","postal_code":"78701","country_code":"US"}'
+        - '{"recipient":"Morgan Patel","street":"319 Willow Court","city":"Denver","region":"CO","postal_code":"80202","country_code":"US"}'
+        - '{"recipient":"Avery Thompson","street":"42 Elm Street","city":"Chicago","region":"IL","postal_code":"60601","country_code":"US"}'
+        - '{"recipient":"Jamie Wilson","street":"76 Ash Avenue","city":"San Francisco","region":"CA","postal_code":"94103","country_code":"US"}'
+        - '{"recipient":"Quinn Bennett","street":"91 Cherry Lane","city":"Toronto","region":"ON","postal_code":"M5V
+          2T6","country_code":"CA"}'
+        - '{"recipient":"Cameron Reed","street":"118 Walnut Road","city":"Vancouver","region":"BC","postal_code":"V6B
+          1A1","country_code":"CA"}'
+        - '{"recipient":"Drew Parker","street":"234 Spruce Drive","city":"Montreal","region":"QC","postal_code":"H2Y
+          1C6","country_code":"CA"}'
+        - '{"recipient":"Skyler Davis","street":"56 Poplar Court","city":"Calgary","region":"AB","postal_code":"T2P
+          1J9","country_code":"CA"}'
+        - '{"recipient":"Sam Nguyen","street":"83 Chestnut Street","city":"Ottawa","region":"ON","postal_code":"K1P
+          1J1","country_code":"CA"}'
+        - '{"recipient":"Robin Campbell","street":"152 Magnolia Avenue","city":"Halifax","region":"NS","postal_code":"B3J
+          1S9","country_code":"CA"}'
+        - '{"recipient":"Jesse Clarke","street":"37 Cypress Lane","city":"London","region":"England","postal_code":"SW1A
+          1AA","country_code":"GB"}'
+        - '{"recipient":"Charlie Evans","street":"264 Sycamore Road","city":"Manchester","region":"England","postal_code":"M1
+          1AE","country_code":"GB"}'
+        - '{"recipient":"Dakota Lewis","street":"18 Beech Drive","city":"Edinburgh","region":"Scotland","postal_code":"EH1
+          1YZ","country_code":"GB"}'
+        - '{"recipient":"Reese Martin","street":"95 Redwood Court","city":"Cardiff","region":"Wales","postal_code":"CF10
+          1EP","country_code":"GB"}'
+        - '{"recipient":"Rowan Hughes","street":"143 Aspen Street","city":"Bristol","region":"England","postal_code":"BS1
+          4ST","country_code":"GB"}'
+        - '{"recipient":"Finley Cooper","street":"62 Juniper Avenue","city":"Belfast","region":"Northern Ireland","postal_code":"BT1
+          5GS","country_code":"GB"}'
+        - '{"recipient":"Emerson Scott","street":"211 Laurel Lane","city":"Berlin","region":"Berlin","postal_code":"10115","country_code":"DE"}'
+        - '{"recipient":"Hayden Ross","street":"74 Hawthorn Road","city":"Munich","region":"Bavaria","postal_code":"80331","country_code":"DE"}'
+        - '{"recipient":"Peyton Murphy","street":"126 Linden Drive","city":"Hamburg","region":"Hamburg","postal_code":"20095","country_code":"DE"}'
+        - '{"recipient":"Blair Anderson","street":"308 Fir Court","city":"Cologne","region":"North Rhine-Westphalia","postal_code":"50667","country_code":"DE"}'
+        - '{"recipient":"Sage Collins","street":"45 Acacia Street","city":"Paris","region":"Ile-de-France","postal_code":"75001","country_code":"FR"}'
+        - '{"recipient":"Arden Walker","street":"167 Olive Avenue","city":"Lyon","region":"Auvergne-Rhone-Alpes","postal_code":"69001","country_code":"FR"}'
+        - '{"recipient":"Elliot Green","street":"89 Palm Lane","city":"Bordeaux","region":"Nouvelle-Aquitaine","postal_code":"33000","country_code":"FR"}'
+        - '{"recipient":"Marley Adams","street":"251 Dogwood Road","city":"Lille","region":"Hauts-de-France","postal_code":"59000","country_code":"FR"}'
+        - '{"recipient":"Remy Laurent","street":"33 Alder Drive","city":"Sydney","region":"NSW","postal_code":"2000","country_code":"AU"}'
+        - '{"recipient":"Noa Fischer","street":"194 Hazel Court","city":"Melbourne","region":"VIC","postal_code":"3000","country_code":"AU"}'
+        - '{"recipient":"Kai Suzuki","street":"72 Rowan Street","city":"Brisbane","region":"QLD","postal_code":"4000","country_code":"AU"}'
+        - '{"recipient":"Luca Romano","street":"136 Holly Avenue","city":"Perth","region":"WA","postal_code":"6000","country_code":"AU"}'
+        seed: 503
+        null_pct: 0
+order_demo__order_items:
+- count: 1000000
+  sort-by: []
+  columns:
+    order_id:
+      type: sequence
+      args:
+        start: 1
+    line_number:
+      type: constant
+      args:
+        value: '1'
+    product_id:
+      type: integer
+      args:
+        min: 1
+        max: 250
+        seed: 601
+        null_pct: 0
+    quantity:
+      type: choice
+      args:
+        population:
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        seed: 902
+        null_pct: 0
+    unit_price:
+      type: choice
+      args:
+        population:
+        - '5.00'
+        - '6.25'
+        - '7.50'
+        - '8.75'
+        - '10.00'
+        - '11.25'
+        - '12.50'
+        - '13.75'
+        - '15.00'
+        - '16.25'
+        - '17.50'
+        - '18.75'
+        - '20.00'
+        - '21.25'
+        - '22.50'
+        - '23.75'
+        - '25.00'
+        - '26.25'
+        - '27.50'
+        - '28.75'
+        - '30.00'
+        - '31.25'
+        - '32.50'
+        - '33.75'
+        - '35.00'
+        - '36.25'
+        - '37.50'
+        - '38.75'
+        - '40.00'
+        - '41.25'
+        - '42.50'
+        - '43.75'
+        seed: 902
+        null_pct: 0
+    discount:
+      type: choice
+      args:
+        population:
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        seed: 902
+        null_pct: 0
+    options:
+      type: choice
+      args:
+        population:
+        - '{"gift_wrap":false}'
+        - '{"gift_wrap":true,"message":"Thank you!"}'
+        seed: 602
+        null_pct: 0
+- count: 1000000
+  sort-by: []
+  columns:
+    order_id:
+      type: sequence
+      args:
+        start: 1
+    line_number:
+      type: constant
+      args:
+        value: '2'
+    product_id:
+      type: integer
+      args:
+        min: 1
+        max: 250
+        seed: 603
+        null_pct: 0
+    quantity:
+      type: choice
+      args:
+        population:
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        seed: 902
+        null_pct: 0
+    unit_price:
+      type: choice
+      args:
+        population:
+        - '8.50'
+        - '9.75'
+        - '11.00'
+        - '12.25'
+        - '13.50'
+        - '14.75'
+        - '16.00'
+        - '17.25'
+        - '18.50'
+        - '19.75'
+        - '21.00'
+        - '22.25'
+        - '23.50'
+        - '24.75'
+        - '26.00'
+        - '27.25'
+        - '28.50'
+        - '29.75'
+        - '31.00'
+        - '32.25'
+        - '33.50'
+        - '34.75'
+        - '36.00'
+        - '37.25'
+        - '38.50'
+        - '39.75'
+        - '41.00'
+        - '42.25'
+        - '43.50'
+        - '44.75'
+        - '46.00'
+        - '47.25'
+        seed: 902
+        null_pct: 0
+    discount:
+      type: choice
+      args:
+        population:
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        seed: 902
+        null_pct: 0
+    options:
+      type: choice
+      args:
+        population:
+        - '{"gift_wrap":false}'
+        - '{"gift_wrap":true,"message":"Thank you!"}'
+        seed: 602
+        null_pct: 0
+- count: 1000000
+  sort-by: []
+  columns:
+    order_id:
+      type: sequence
+      args:
+        start: 1
+    line_number:
+      type: constant
+      args:
+        value: '3'
+    product_id:
+      type: integer
+      args:
+        min: 1
+        max: 250
+        seed: 604
+        null_pct: 0
+    quantity:
+      type: choice
+      args:
+        population:
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        - 2
+        - 3
+        - 1
+        seed: 902
+        null_pct: 0
+    unit_price:
+      type: choice
+      args:
+        population:
+        - '12.00'
+        - '13.25'
+        - '14.50'
+        - '15.75'
+        - '17.00'
+        - '18.25'
+        - '19.50'
+        - '20.75'
+        - '22.00'
+        - '23.25'
+        - '24.50'
+        - '25.75'
+        - '27.00'
+        - '28.25'
+        - '29.50'
+        - '30.75'
+        - '32.00'
+        - '33.25'
+        - '34.50'
+        - '35.75'
+        - '37.00'
+        - '38.25'
+        - '39.50'
+        - '40.75'
+        - '42.00'
+        - '43.25'
+        - '44.50'
+        - '45.75'
+        - '47.00'
+        - '48.25'
+        - '49.50'
+        - '50.75'
+        seed: 902
+        null_pct: 0
+    discount:
+      type: choice
+      args:
+        population:
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        - '1.00'
+        - '1.50'
+        - '0.00'
+        - '0.50'
+        seed: 902
+        null_pct: 0
+    options:
+      type: choice
+      args:
+        population:
+        - '{"gift_wrap":false}'
+        - '{"gift_wrap":true,"message":"Thank you!"}'
+        seed: 602
+        null_pct: 0
+order_demo__payments:
+- count: 1000000
+  sort-by: []
+  columns:
+    payment_id:
+      type: uuid
+      args:
+        seed: 701
+        null_pct: 0
+    order_id:
+      type: sequence
+      args:
+        start: 1
+    status:
+      type: constant
+      args:
+        value: captured
+    method:
+      type: choice
+      args:
+        population:
+        - card
+        - bank_transfer
+        - wallet
+        seed: 702
+        null_pct: 0
+    amount:
+      type: choice
+      args:
+        population:
+        - '61.02'
+        - '60.15'
+        - '69.80'
+        - '92.28'
+        - '82.08'
+        - '92.55'
+        - '113.54'
+        - '113.34'
+        - '114.48'
+        - '136.29'
+        - '134.60'
+        - '145.74'
+        - '158.22'
+        - '157.35'
+        - '167.00'
+        - '189.48'
+        - '179.28'
+        - '189.75'
+        - '210.74'
+        - '210.54'
+        - '211.68'
+        - '233.49'
+        - '231.80'
+        - '242.94'
+        - '255.42'
+        - '254.55'
+        - '264.20'
+        - '286.68'
+        - '276.48'
+        - '286.95'
+        - '307.94'
+        - '307.74'
+        seed: 902
+        null_pct: 0
+    provider_reference:
+      type: string
+      args:
+        min: 24
+        max: 24
+        prefix: PAY-
+        seed: 703
+        null_pct: 0
+    provider_response:
+      type: choice
+      args:
+        population:
+        - '{"approved":true,"risk":{"score":0.0},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.001},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.002},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.003},"processor":"demo_d"}'
+        - '{"approved":true,"risk":{"score":0.004},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.005},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.006},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.007},"processor":"demo_d"}'
+        - '{"approved":true,"risk":{"score":0.008},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.009},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.01},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.011},"processor":"demo_d"}'
+        - '{"approved":true,"risk":{"score":0.012},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.013},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.014},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.015},"processor":"demo_d"}'
+        - '{"approved":true,"risk":{"score":0.016},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.017},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.018},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.019},"processor":"demo_d"}'
+        - '{"approved":true,"risk":{"score":0.02},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.021},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.022},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.023},"processor":"demo_d"}'
+        - '{"approved":true,"risk":{"score":0.024},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.025},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.026},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.027},"processor":"demo_d"}'
+        - '{"approved":true,"risk":{"score":0.028},"processor":"demo_a"}'
+        - '{"approved":true,"risk":{"score":0.029},"processor":"demo_b"}'
+        - '{"approved":true,"risk":{"score":0.03},"processor":"demo_c"}'
+        - '{"approved":true,"risk":{"score":0.031},"processor":"demo_d"}'
+        seed: 704
+        null_pct: 0
+    created_at:
+      type: choice
+      args:
+        population:
+        - '2026-01-03T10:00:30+00:00'
+        - '2026-01-10T10:00:30+00:00'
+        - '2026-01-17T10:00:30+00:00'
+        - '2026-01-24T10:00:30+00:00'
+        - '2026-01-31T10:00:30+00:00'
+        - '2026-02-07T10:00:30+00:00'
+        - '2026-02-14T10:00:30+00:00'
+        - '2026-02-21T10:00:30+00:00'
+        - '2026-02-28T10:00:30+00:00'
+        - '2026-03-07T10:00:30+00:00'
+        - '2026-03-14T10:00:30+00:00'
+        - '2026-03-21T10:00:30+00:00'
+        - '2026-03-28T10:00:30+00:00'
+        - '2026-04-04T10:00:30+00:00'
+        - '2026-04-11T10:00:30+00:00'
+        - '2026-04-18T10:00:30+00:00'
+        - '2026-04-25T10:00:30+00:00'
+        - '2026-05-02T10:00:30+00:00'
+        - '2026-05-09T10:00:30+00:00'
+        - '2026-05-16T10:00:30+00:00'
+        - '2026-05-23T10:00:30+00:00'
+        - '2026-05-30T10:00:30+00:00'
+        - '2026-06-06T10:00:30+00:00'
+        - '2026-06-13T10:00:30+00:00'
+        - '2026-06-20T10:00:30+00:00'
+        - '2026-06-27T10:00:30+00:00'
+        - '2026-07-04T10:00:30+00:00'
+        - '2026-07-11T10:00:30+00:00'
+        - '2026-07-18T10:00:30+00:00'
+        - '2026-07-25T10:00:30+00:00'
+        - '2026-08-01T10:00:30+00:00'
+        - '2026-08-08T10:00:30+00:00'
+        seed: 901
+        null_pct: 0
+    captured_at:
+      type: choice
+      args:
+        population:
+        - '2026-01-03T10:01:00+00:00'
+        - '2026-01-10T10:01:00+00:00'
+        - '2026-01-17T10:01:00+00:00'
+        - '2026-01-24T10:01:00+00:00'
+        - '2026-01-31T10:01:00+00:00'
+        - '2026-02-07T10:01:00+00:00'
+        - '2026-02-14T10:01:00+00:00'
+        - '2026-02-21T10:01:00+00:00'
+        - '2026-02-28T10:01:00+00:00'
+        - '2026-03-07T10:01:00+00:00'
+        - '2026-03-14T10:01:00+00:00'
+        - '2026-03-21T10:01:00+00:00'
+        - '2026-03-28T10:01:00+00:00'
+        - '2026-04-04T10:01:00+00:00'
+        - '2026-04-11T10:01:00+00:00'
+        - '2026-04-18T10:01:00+00:00'
+        - '2026-04-25T10:01:00+00:00'
+        - '2026-05-02T10:01:00+00:00'
+        - '2026-05-09T10:01:00+00:00'
+        - '2026-05-16T10:01:00+00:00'
+        - '2026-05-23T10:01:00+00:00'
+        - '2026-05-30T10:01:00+00:00'
+        - '2026-06-06T10:01:00+00:00'
+        - '2026-06-13T10:01:00+00:00'
+        - '2026-06-20T10:01:00+00:00'
+        - '2026-06-27T10:01:00+00:00'
+        - '2026-07-04T10:01:00+00:00'
+        - '2026-07-11T10:01:00+00:00'
+        - '2026-07-18T10:01:00+00:00'
+        - '2026-07-25T10:01:00+00:00'
+        - '2026-08-01T10:01:00+00:00'
+        - '2026-08-08T10:01:00+00:00'
+        seed: 901
+        null_pct: 0
+order_demo__shipments:
+- count: 1000000
+  sort-by: []
+  columns:
+    shipment_id:
+      type: sequence
+      args:
+        start: 1
+    order_id:
+      type: sequence
+      args:
+        start: 1
+    carrier:
+      type: choice
+      args:
+        population:
+        - demo_ground
+        - demo_express
+        - demo_postal
+        - demo_courier
+        - demo_economy
+        - demo_priority
+        - demo_local
+        - demo_international
+        seed: 801
+        null_pct: 0
+    tracking_number:
+      type: string
+      args:
+        min: 24
+        max: 24
+        prefix: TRACK-
+        seed: 802
+        null_pct: 0
+    shipped_at:
+      type: choice
+      args:
+        population:
+        - '2026-01-04T09:00:00+00:00'
+        - '2026-01-11T09:00:00+00:00'
+        - '2026-01-18T09:00:00+00:00'
+        - '2026-01-25T09:00:00+00:00'
+        - '2026-02-01T09:00:00+00:00'
+        - '2026-02-08T09:00:00+00:00'
+        - '2026-02-15T09:00:00+00:00'
+        - '2026-02-22T09:00:00+00:00'
+        - '2026-03-01T09:00:00+00:00'
+        - '2026-03-08T09:00:00+00:00'
+        - '2026-03-15T09:00:00+00:00'
+        - '2026-03-22T09:00:00+00:00'
+        - '2026-03-29T09:00:00+00:00'
+        - '2026-04-05T09:00:00+00:00'
+        - '2026-04-12T09:00:00+00:00'
+        - '2026-04-19T09:00:00+00:00'
+        - '2026-04-26T09:00:00+00:00'
+        - '2026-05-03T09:00:00+00:00'
+        - '2026-05-10T09:00:00+00:00'
+        - '2026-05-17T09:00:00+00:00'
+        - '2026-05-24T09:00:00+00:00'
+        - '2026-05-31T09:00:00+00:00'
+        - '2026-06-07T09:00:00+00:00'
+        - '2026-06-14T09:00:00+00:00'
+        - '2026-06-21T09:00:00+00:00'
+        - '2026-06-28T09:00:00+00:00'
+        - '2026-07-05T09:00:00+00:00'
+        - '2026-07-12T09:00:00+00:00'
+        - '2026-07-19T09:00:00+00:00'
+        - '2026-07-26T09:00:00+00:00'
+        - '2026-08-02T09:00:00+00:00'
+        - '2026-08-09T09:00:00+00:00'
+        seed: 901
+        null_pct: 0
+    delivered_at:
+      type: choice
+      args:
+        population:
+        - '2026-01-06T14:00:00+00:00'
+        - '2026-01-13T14:00:00+00:00'
+        - '2026-01-20T14:00:00+00:00'
+        - '2026-01-27T14:00:00+00:00'
+        - '2026-02-03T14:00:00+00:00'
+        - '2026-02-10T14:00:00+00:00'
+        - '2026-02-17T14:00:00+00:00'
+        - '2026-02-24T14:00:00+00:00'
+        - '2026-03-03T14:00:00+00:00'
+        - '2026-03-10T14:00:00+00:00'
+        - '2026-03-17T14:00:00+00:00'
+        - '2026-03-24T14:00:00+00:00'
+        - '2026-03-31T14:00:00+00:00'
+        - '2026-04-07T14:00:00+00:00'
+        - '2026-04-14T14:00:00+00:00'
+        - '2026-04-21T14:00:00+00:00'
+        - '2026-04-28T14:00:00+00:00'
+        - '2026-05-05T14:00:00+00:00'
+        - '2026-05-12T14:00:00+00:00'
+        - '2026-05-19T14:00:00+00:00'
+        - '2026-05-26T14:00:00+00:00'
+        - '2026-06-02T14:00:00+00:00'
+        - '2026-06-09T14:00:00+00:00'
+        - '2026-06-16T14:00:00+00:00'
+        - '2026-06-23T14:00:00+00:00'
+        - '2026-06-30T14:00:00+00:00'
+        - '2026-07-07T14:00:00+00:00'
+        - '2026-07-14T14:00:00+00:00'
+        - '2026-07-21T14:00:00+00:00'
+        - '2026-07-28T14:00:00+00:00'
+        - '2026-08-04T14:00:00+00:00'
+        - '2026-08-11T14:00:00+00:00'
+        seed: 901
+        null_pct: 0
+    delivery_window:
+      type: choice
+      args:
+        population:
+        - '["2026-01-06T09:00:00+00:00","2026-01-06T18:00:00+00:00")'
+        - '["2026-01-13T09:00:00+00:00","2026-01-13T18:00:00+00:00")'
+        - '["2026-01-20T09:00:00+00:00","2026-01-20T18:00:00+00:00")'
+        - '["2026-01-27T09:00:00+00:00","2026-01-27T18:00:00+00:00")'
+        - '["2026-02-03T09:00:00+00:00","2026-02-03T18:00:00+00:00")'
+        - '["2026-02-10T09:00:00+00:00","2026-02-10T18:00:00+00:00")'
+        - '["2026-02-17T09:00:00+00:00","2026-02-17T18:00:00+00:00")'
+        - '["2026-02-24T09:00:00+00:00","2026-02-24T18:00:00+00:00")'
+        - '["2026-03-03T09:00:00+00:00","2026-03-03T18:00:00+00:00")'
+        - '["2026-03-10T09:00:00+00:00","2026-03-10T18:00:00+00:00")'
+        - '["2026-03-17T09:00:00+00:00","2026-03-17T18:00:00+00:00")'
+        - '["2026-03-24T09:00:00+00:00","2026-03-24T18:00:00+00:00")'
+        - '["2026-03-31T09:00:00+00:00","2026-03-31T18:00:00+00:00")'
+        - '["2026-04-07T09:00:00+00:00","2026-04-07T18:00:00+00:00")'
+        - '["2026-04-14T09:00:00+00:00","2026-04-14T18:00:00+00:00")'
+        - '["2026-04-21T09:00:00+00:00","2026-04-21T18:00:00+00:00")'
+        - '["2026-04-28T09:00:00+00:00","2026-04-28T18:00:00+00:00")'
+        - '["2026-05-05T09:00:00+00:00","2026-05-05T18:00:00+00:00")'
+        - '["2026-05-12T09:00:00+00:00","2026-05-12T18:00:00+00:00")'
+        - '["2026-05-19T09:00:00+00:00","2026-05-19T18:00:00+00:00")'
+        - '["2026-05-26T09:00:00+00:00","2026-05-26T18:00:00+00:00")'
+        - '["2026-06-02T09:00:00+00:00","2026-06-02T18:00:00+00:00")'
+        - '["2026-06-09T09:00:00+00:00","2026-06-09T18:00:00+00:00")'
+        - '["2026-06-16T09:00:00+00:00","2026-06-16T18:00:00+00:00")'
+        - '["2026-06-23T09:00:00+00:00","2026-06-23T18:00:00+00:00")'
+        - '["2026-06-30T09:00:00+00:00","2026-06-30T18:00:00+00:00")'
+        - '["2026-07-07T09:00:00+00:00","2026-07-07T18:00:00+00:00")'
+        - '["2026-07-14T09:00:00+00:00","2026-07-14T18:00:00+00:00")'
+        - '["2026-07-21T09:00:00+00:00","2026-07-21T18:00:00+00:00")'
+        - '["2026-07-28T09:00:00+00:00","2026-07-28T18:00:00+00:00")'
+        - '["2026-08-04T09:00:00+00:00","2026-08-04T18:00:00+00:00")'
+        - '["2026-08-11T09:00:00+00:00","2026-08-11T18:00:00+00:00")'
+        seed: 901
+        null_pct: 0
+    estimated_transit:
+      type: choice
+      args:
+        population:
+        - 1 days 0 hours
+        - 2 days 1 hours
+        - 3 days 2 hours
+        - 4 days 3 hours
+        - 5 days 4 hours
+        - 6 days 5 hours
+        - 7 days 6 hours
+        - 1 days 7 hours
+        - 2 days 8 hours
+        - 3 days 9 hours
+        - 4 days 10 hours
+        - 5 days 11 hours
+        - 6 days 0 hours
+        - 7 days 1 hours
+        - 1 days 2 hours
+        - 2 days 3 hours
+        - 3 days 4 hours
+        - 4 days 5 hours
+        - 5 days 6 hours
+        - 6 days 7 hours
+        - 7 days 8 hours
+        - 1 days 9 hours
+        - 2 days 10 hours
+        - 3 days 11 hours
+        - 4 days 0 hours
+        - 5 days 1 hours
+        - 6 days 2 hours
+        - 7 days 3 hours
+        - 1 days 4 hours
+        - 2 days 5 hours
+        - 3 days 6 hours
+        - 4 days 7 hours
+        seed: 804
+        null_pct: 0
+    package_weight_kg:
+      type: float
+      args:
+        min: 0.1
+        max: 25
+        round: 3
+        seed: 803
+        null_pct: 0
+    tracking_events:
+      type: choice
+      args:
+        population:
+        - '[{"status":"shipped","at":"2026-01-04T09:00:00+00:00"},{"status":"delivered","at":"2026-01-06T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-01-11T09:00:00+00:00"},{"status":"delivered","at":"2026-01-13T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-01-18T09:00:00+00:00"},{"status":"delivered","at":"2026-01-20T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-01-25T09:00:00+00:00"},{"status":"delivered","at":"2026-01-27T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-02-01T09:00:00+00:00"},{"status":"delivered","at":"2026-02-03T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-02-08T09:00:00+00:00"},{"status":"delivered","at":"2026-02-10T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-02-15T09:00:00+00:00"},{"status":"delivered","at":"2026-02-17T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-02-22T09:00:00+00:00"},{"status":"delivered","at":"2026-02-24T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-03-01T09:00:00+00:00"},{"status":"delivered","at":"2026-03-03T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-03-08T09:00:00+00:00"},{"status":"delivered","at":"2026-03-10T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-03-15T09:00:00+00:00"},{"status":"delivered","at":"2026-03-17T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-03-22T09:00:00+00:00"},{"status":"delivered","at":"2026-03-24T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-03-29T09:00:00+00:00"},{"status":"delivered","at":"2026-03-31T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-04-05T09:00:00+00:00"},{"status":"delivered","at":"2026-04-07T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-04-12T09:00:00+00:00"},{"status":"delivered","at":"2026-04-14T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-04-19T09:00:00+00:00"},{"status":"delivered","at":"2026-04-21T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-04-26T09:00:00+00:00"},{"status":"delivered","at":"2026-04-28T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-05-03T09:00:00+00:00"},{"status":"delivered","at":"2026-05-05T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-05-10T09:00:00+00:00"},{"status":"delivered","at":"2026-05-12T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-05-17T09:00:00+00:00"},{"status":"delivered","at":"2026-05-19T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-05-24T09:00:00+00:00"},{"status":"delivered","at":"2026-05-26T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-05-31T09:00:00+00:00"},{"status":"delivered","at":"2026-06-02T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-06-07T09:00:00+00:00"},{"status":"delivered","at":"2026-06-09T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-06-14T09:00:00+00:00"},{"status":"delivered","at":"2026-06-16T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-06-21T09:00:00+00:00"},{"status":"delivered","at":"2026-06-23T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-06-28T09:00:00+00:00"},{"status":"delivered","at":"2026-06-30T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-07-05T09:00:00+00:00"},{"status":"delivered","at":"2026-07-07T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-07-12T09:00:00+00:00"},{"status":"delivered","at":"2026-07-14T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-07-19T09:00:00+00:00"},{"status":"delivered","at":"2026-07-21T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-07-26T09:00:00+00:00"},{"status":"delivered","at":"2026-07-28T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-08-02T09:00:00+00:00"},{"status":"delivered","at":"2026-08-04T14:00:00+00:00"}]'
+        - '[{"status":"shipped","at":"2026-08-09T09:00:00+00:00"},{"status":"delivered","at":"2026-08-11T14:00:00+00:00"}]'
+        seed: 901
+        null_pct: 0

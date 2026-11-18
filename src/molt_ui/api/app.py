@@ -3,8 +3,7 @@ import io
 from contextlib import asynccontextmanager
 from importlib.resources import files
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
-from tempfile import NamedTemporaryFile, SpooledTemporaryFile
+from tempfile import SpooledTemporaryFile
 from typing import Annotated
 from urllib.parse import unquote
 
@@ -14,7 +13,6 @@ from fastapi.staticfiles import StaticFiles
 
 from molt_ui.api.models import CommandDefinition, StartCommand
 from molt_ui.bootstrap import create_service
-from molt_ui.config import Settings
 from molt_ui.core.errors import MoltError, RunConflict
 from molt_ui.core.models import (
     CommandPlan,
@@ -25,6 +23,7 @@ from molt_ui.core.models import (
     TableLogs,
 )
 from molt_ui.core.service import MoltService
+from molt_ui.file_picker import choose_file
 
 WEBAPP_DIRECTORY = files("molt_ui.webapp")
 try:
@@ -65,36 +64,13 @@ def commands(service: Service) -> list[CommandDefinition]:
     return [CommandDefinition.from_spec(item) for item in service.commands()]
 
 
-MAX_COMMAND_FILE_SIZE = 32 * 1024 * 1024
-
-
-@app.post("/api/command-files", status_code=201)
-async def upload_command_file(request: Request) -> dict[str, str]:
-    """Keep uploaded inputs alongside the database so saved runs can reuse them."""
-    database = Settings.from_environment().database
-    storage = Path(database).expanduser().resolve().parent if database != ":memory:" else Path.cwd() / ".data"
-    directory = storage / "command-files"
-    filename = Path(unquote(request.headers.get("X-Filename", "input")).replace("\\", "/")).name
-    filename = filename[:120] if filename not in {"", ".", ".."} else "input"
-    uploaded_path = None
-    complete = False
+@app.post("/api/file-picker")
+def pick_command_file() -> dict[str, str | None]:
+    """Select an original file on the server's desktop without uploading a copy."""
     try:
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with NamedTemporaryFile(dir=directory, prefix="input-", suffix="-" + filename, delete=False) as upload:
-            uploaded_path = Path(upload.name)
-            size = 0
-            async for chunk in request.stream():
-                size += len(chunk)
-                if size > MAX_COMMAND_FILE_SIZE:
-                    raise HTTPException(status_code=413, detail="Command files are limited to 32 MiB.")
-                await asyncio.to_thread(upload.write, chunk)
-        complete = True
-        return {"path": str(uploaded_path)}
-    except (OSError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="Could not save the selected file.") from exc
-    finally:
-        if uploaded_path is not None and not complete:
-            uploaded_path.unlink(missing_ok=True)
+        return {"path": choose_file()}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/jobs", status_code=201)

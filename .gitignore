@@ -13,5 +13,5 @@ molt/
 *.tsv
 *.csv
 *.dump
-
+.patch
 .*
