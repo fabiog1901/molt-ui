@@ -14,4 +14,4 @@ molt/
 *.csv
 *.dump
 
-examples/
+.*
