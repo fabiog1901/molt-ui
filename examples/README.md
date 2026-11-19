@@ -62,7 +62,7 @@ The script finishes by reporting the expected row counts:
 
 | Table | Rows |
 | --- | ---: |
-| `audit.audit_event` | 0 |
+| `audit.audit_event` | 40 |
 | `order_demo.addresses` | 10,000 |
 | `order_demo.categories` | 12 |
 | `order_demo.customers` | 10,000 |
@@ -127,20 +127,12 @@ trying to load values into its computed columns.
 
 ## 4. Run the migration
 
-Set your source and target connection URLs, replacing the example credentials:
+Run MOLT from this directory.
 
 ```bash
-export SOURCE_URL='postgres://USER:PASSWORD@localhost:5432/order_demo'
-export TARGET_URL='postgres://USER:PASSWORD@localhost:26257/order_demo?sslmode=require'
-```
-
-Run MOLT from this directory. This command uses the patched binary built for
-this example; adjust the executable path if needed:
-
-```bash
-../molt/molt-point-rustfs fetch \
-  --source="$SOURCE_URL" \
-  --target="$TARGET_URL" \
+molt fetch \
+  --source='postgres://USER:PASSWORD@localhost:5432/order_demo' \
+  --target='postgres://USER:PASSWORD@localhost:26257/order_demo?sslmode=require' \
   --bucket-path='s3://order-demo/' \
   --flatten-partitioned-tables \
   --table-handling=none \
